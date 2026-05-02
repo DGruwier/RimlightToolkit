@@ -30,13 +30,15 @@ Quick path:
 .\scripts\rtk.ps1 run
 ```
 
+On Windows this opens the native interactive preview window. Drag a PNG from Explorer onto the window to load it, then click or drag in the canvas to move the transform origin. You can also force the window explicitly with `.\scripts\rtk.ps1 gui`.
+
 Process a PNG:
 
 ```powershell
 .\scripts\rtk.ps1 run --input .\path\to\source.png --out out\preview.png
 ```
 
-On Windows, `scripts\preview.cmd` can be used as a simple Explorer drop target: drag a PNG onto it and it will build/run the preview harness against that image.
+Passing arguments runs the CLI preview harness instead. On Windows, `scripts\preview.cmd` can be used as a simple Explorer drop target: drag a PNG onto it and it will build/run the interactive preview against that image.
 
 On macOS/Linux:
 

@@ -6,6 +6,7 @@ project(RimlightToolkit
   LANGUAGES CXX)
 
 option(RTK_BUILD_PREVIEW_CLI "Build the preview/test CLI harness" ON)
+option(RTK_BUILD_PREVIEW_GUI "Build the native interactive preview app where supported" ON)
 option(RTK_BUILD_TESTS "Build core renderer tests" ON)
 option(RTK_BUILD_AE_PLUGIN "Build the After Effects adapter. Requires AE_SDK_ROOT." OFF)
 option(RTK_BUILD_OFX_PLUGIN "Build the OpenFX adapter. Requires OPENFX_SDK_ROOT or fetched headers." OFF)
@@ -19,6 +20,10 @@ add_subdirectory(src/core)
 
 if(RTK_BUILD_PREVIEW_CLI)
   add_subdirectory(apps/preview_cli)
+endif()
+
+if(RTK_BUILD_PREVIEW_GUI AND WIN32)
+  add_subdirectory(apps/preview_gui)
 endif()
 
 if(RTK_BUILD_TESTS)

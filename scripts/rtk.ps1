@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $BuildDir = if ($env:RTK_BUILD_DIR) { $env:RTK_BUILD_DIR } else { Join-Path $Root "build" }
 $Config = if ($env:RTK_CONFIG) { $env:RTK_CONFIG } else { "Release" }
-$PreviewArgs = $args
+$PreviewArgs = @($args)
 $ToolsDir = Join-Path $Root ".rtk\tools"
 $CMakeVersion = if ($env:RTK_CMAKE_VERSION) { $env:RTK_CMAKE_VERSION } else { "3.29.8" }
 $script:CMakeExe = $null
@@ -142,7 +142,25 @@ function Build-Project {
   & $script:CMakeExe --build $BuildDir --config $Config
 }
 
-function Find-PreviewExecutable {
+function Find-PreviewExecutable([bool]$PreferGui) {
+  $names = if ($PreferGui) {
+    @("rtk_preview_gui.exe", "rtk_preview_gui", "rtk_preview_cli.exe", "rtk_preview_cli")
+  } else {
+    @("rtk_preview_cli.exe", "rtk_preview_cli")
+  }
+
+  $candidate = Get-ChildItem -Path $BuildDir -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $names -contains $_.Name } |
+    Sort-Object @{ Expression = { [array]::IndexOf($names, $_.Name) } }, LastWriteTimeUtc -Descending |
+    Select-Object -First 1
+
+  if (-not $candidate) {
+    throw "Preview harness was not found under $BuildDir after build."
+  }
+  return $candidate.FullName
+}
+
+function Find-PreviewCliExecutable {
   $names = @("rtk_preview_cli.exe", "rtk_preview_cli")
   $candidate = Get-ChildItem -Path $BuildDir -Recurse -File -ErrorAction SilentlyContinue |
     Where-Object { $names -contains $_.Name } |
@@ -157,7 +175,15 @@ function Find-PreviewExecutable {
 
 function Run-Preview {
   Build-Project
-  $exe = Find-PreviewExecutable
+  $preferGui = $PreviewArgs.Count -eq 0
+  $exe = Find-PreviewExecutable $preferGui
+  Write-Step "running $exe $($PreviewArgs -join ' ')"
+  & $exe @PreviewArgs
+}
+
+function Run-GuiPreview {
+  Build-Project
+  $exe = Find-PreviewExecutable $true
   Write-Step "running $exe $($PreviewArgs -join ' ')"
   & $exe @PreviewArgs
 }
@@ -185,9 +211,10 @@ switch ($Command.ToLowerInvariant()) {
   "build" { Build-Project }
   "test" { Run-Tests }
   "run" { Run-Preview }
+  "gui" { Run-GuiPreview }
   "clean" { Clean-Build }
   default {
-    Write-Host "Usage: scripts/rtk.ps1 [check|build|test|run|clean] [preview args...]"
+    Write-Host "Usage: scripts/rtk.ps1 [check|build|test|run|gui|clean] [preview args...]"
     exit 2
   }
 }
