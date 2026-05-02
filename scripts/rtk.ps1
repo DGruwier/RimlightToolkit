@@ -149,15 +149,17 @@ function Find-PreviewExecutable([bool]$PreferGui) {
     @("rtk_preview_cli.exe", "rtk_preview_cli")
   }
 
-  $candidate = Get-ChildItem -Path $BuildDir -Recurse -File -ErrorAction SilentlyContinue |
-    Where-Object { $names -contains $_.Name } |
-    Sort-Object @{ Expression = { [array]::IndexOf($names, $_.Name) } }, LastWriteTimeUtc -Descending |
-    Select-Object -First 1
+  foreach ($name in $names) {
+    $candidate = Get-ChildItem -Path $BuildDir -Recurse -File -Filter $name -ErrorAction SilentlyContinue |
+      Sort-Object LastWriteTimeUtc -Descending |
+      Select-Object -First 1
 
-  if (-not $candidate) {
-    throw "Preview harness was not found under $BuildDir after build."
+    if ($candidate) {
+      return $candidate.FullName
+    }
   }
-  return $candidate.FullName
+
+  throw "Preview harness was not found under $BuildDir after build."
 }
 
 function Find-PreviewCliExecutable {
