@@ -190,6 +190,23 @@ function Run-GuiPreview {
   & $exe @PreviewArgs
 }
 
+function Run-Benchmark {
+  Build-Project
+  $exe = Find-PreviewExecutable $true
+  $benchmarkOut = Join-Path $Root "out\benchmark.txt"
+  $benchArgs = @("--benchmark", "--benchmark-out", $benchmarkOut) + $PreviewArgs
+  Write-Step "running benchmark $exe $($benchArgs -join ' ')"
+  $process = Start-Process -FilePath $exe -ArgumentList $benchArgs -Wait -PassThru
+  if ($process.ExitCode -ne 0) {
+    throw "Benchmark failed with exit code $($process.ExitCode)"
+  }
+  if (Test-Path $benchmarkOut) {
+    Get-Content $benchmarkOut
+  } else {
+    throw "Benchmark did not write $benchmarkOut"
+  }
+}
+
 function Run-Tests {
   Build-Project
   Write-Step "running tests"
@@ -214,9 +231,10 @@ switch ($Command.ToLowerInvariant()) {
   "test" { Run-Tests }
   "run" { Run-Preview }
   "gui" { Run-GuiPreview }
+  "bench" { Run-Benchmark }
   "clean" { Clean-Build }
   default {
-    Write-Host "Usage: scripts/rtk.ps1 [check|build|test|run|gui|clean] [preview args...]"
+    Write-Host "Usage: scripts/rtk.ps1 [check|build|test|run|gui|bench|clean] [preview args...]"
     exit 2
   }
 }

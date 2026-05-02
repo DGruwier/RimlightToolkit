@@ -141,6 +141,82 @@ bool dimensions_match(const ImageView& source, const MutableImageView& destinati
   return source.width == destination.width && source.height == destination.height;
 }
 
+float alpha_at_u8(const ImageView& image, int x, int y) noexcept {
+  if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
+    return 0.0f;
+  }
+  const auto* row = static_cast<const std::uint8_t*>(image.data) + image.row_bytes * y;
+  return (row[x * 4 + 3] * (1.0f / 255.0f));
+}
+
+float sample_alpha_bilinear_u8(const ImageView& image, float x, float y) noexcept {
+  if (x < 0.0f || y < 0.0f || x > static_cast<float>(image.width - 1) ||
+      y > static_cast<float>(image.height - 1)) {
+    return 0.0f;
+  }
+
+  const int x0 = static_cast<int>(x);
+  const int y0 = static_cast<int>(y);
+  const int x1 = std::min(x0 + 1, image.width - 1);
+  const int y1 = std::min(y0 + 1, image.height - 1);
+  const float tx = x - static_cast<float>(x0);
+  const float ty = y - static_cast<float>(y0);
+
+  const float a00 = alpha_at_u8(image, x0, y0);
+  const float a10 = alpha_at_u8(image, x1, y0);
+  const float a01 = alpha_at_u8(image, x0, y1);
+  const float a11 = alpha_at_u8(image, x1, y1);
+  const float ax0 = a00 + (a10 - a00) * tx;
+  const float ax1 = a01 + (a11 - a01) * tx;
+  return ax0 + (ax1 - ax0) * ty;
+}
+
+void render_u8(const ImageView& source, const MutableImageView& destination, const RenderParams& params) {
+  const float scale = std::max(params.alpha_scale, 0.0001f);
+  const float inverse_scale = 1.0f / scale;
+  const float origin_x = params.transform_origin_x >= 0.0f
+                             ? params.transform_origin_x
+                             : (static_cast<float>(source.width - 1) * 0.5f);
+  const float origin_y = params.transform_origin_y >= 0.0f
+                             ? params.transform_origin_y
+                             : (static_cast<float>(source.height - 1) * 0.5f);
+  const float fill_opacity = clamp01(params.fill_opacity) * clamp01(params.fill_color.a);
+  const float source_opacity = clamp01(params.source_opacity);
+  const float fill_r = clamp01(params.fill_color.r);
+  const float fill_g = clamp01(params.fill_color.g);
+  const float fill_b = clamp01(params.fill_color.b);
+
+  for (int y = 0; y < source.height; ++y) {
+    const auto* src_row = static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y;
+    auto* dst_row = static_cast<std::uint8_t*>(destination.data) + destination.row_bytes * y;
+    const float sy = origin_y + (static_cast<float>(y) - origin_y) * inverse_scale;
+
+    for (int x = 0; x < source.width; ++x) {
+      const int offset = x * 4;
+      const float src_a = (src_row[offset + 3] * (1.0f / 255.0f)) * source_opacity;
+      const float sx = origin_x + (static_cast<float>(x) - origin_x) * inverse_scale;
+      const float sampled_alpha = sample_alpha_bilinear_u8(source, sx, sy);
+      const float fill_a = clamp01((1.0f - sampled_alpha) * src_a * fill_opacity);
+      const float out_a = fill_a + src_a * (1.0f - fill_a);
+
+      if (out_a <= std::numeric_limits<float>::epsilon()) {
+        dst_row[offset + 0] = 0;
+        dst_row[offset + 1] = 0;
+        dst_row[offset + 2] = 0;
+        dst_row[offset + 3] = 0;
+        continue;
+      }
+
+      const float src_weight = src_a * (1.0f - fill_a);
+      const float inv_out_a = 1.0f / out_a;
+      dst_row[offset + 0] = to_u8((fill_r * fill_a + (src_row[offset + 0] * (1.0f / 255.0f)) * src_weight) * inv_out_a);
+      dst_row[offset + 1] = to_u8((fill_g * fill_a + (src_row[offset + 1] * (1.0f / 255.0f)) * src_weight) * inv_out_a);
+      dst_row[offset + 2] = to_u8((fill_b * fill_a + (src_row[offset + 2] * (1.0f / 255.0f)) * src_weight) * inv_out_a);
+      dst_row[offset + 3] = to_u8(out_a);
+    }
+  }
+}
+
 }  // namespace
 
 bool is_valid(const ImageView& image) noexcept {
@@ -174,6 +250,11 @@ RenderResult render(const ImageView& source,
 
   const float fill_opacity = clamp01(params.fill_opacity) * clamp01(params.fill_color.a);
   const float source_opacity = clamp01(params.source_opacity);
+
+  if (source.format == PixelFormat::RgbaU8 && destination.format == PixelFormat::RgbaU8) {
+    render_u8(source, destination, params);
+    return {};
+  }
 
   for (int y = 0; y < source.height; ++y) {
     for (int x = 0; x < source.width; ++x) {

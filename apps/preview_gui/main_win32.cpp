@@ -7,8 +7,12 @@
 #include "rtk/core/Renderer.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -33,7 +37,21 @@ struct PreviewState {
   std::filesystem::path source_path;
 };
 
+struct AppOptions {
+  bool benchmark = false;
+  int benchmark_frames = 600;
+  std::filesystem::path benchmark_out = "out/benchmark.txt";
+  std::filesystem::path input;
+};
+
+struct TimingStats {
+  std::vector<double> frame_ms;
+  std::vector<double> render_ms;
+  std::vector<double> draw_ms;
+};
+
 PreviewState g_state;
+AppOptions g_options;
 
 std::string narrow(const std::wstring& value) {
   if (value.empty()) {
@@ -88,15 +106,16 @@ bool load_png(const std::filesystem::path& path) {
   return true;
 }
 
-void render_preview() {
-  g_state.rendered.assign(g_state.source.size(), 0);
+double render_preview() {
+  const auto started = std::chrono::steady_clock::now();
+  g_state.rendered.resize(g_state.source.size());
   const rtk::core::ImageView source{
       g_state.source.data(), g_state.width, g_state.height, g_state.width * 4, rtk::core::PixelFormat::RgbaU8};
   const rtk::core::MutableImageView destination{
       g_state.rendered.data(), g_state.width, g_state.height, g_state.width * 4, rtk::core::PixelFormat::RgbaU8};
   rtk::core::render(source, destination, g_state.params);
 
-  g_state.display_bgra.assign(g_state.rendered.size(), 0);
+  g_state.display_bgra.resize(g_state.rendered.size());
   for (int y = 0; y < g_state.height; ++y) {
     for (int x = 0; x < g_state.width; ++x) {
       const std::size_t index = (static_cast<std::size_t>(y) * g_state.width + x) * 4;
@@ -112,6 +131,8 @@ void render_preview() {
       g_state.display_bgra[index + 3] = 255;
     }
   }
+  const auto finished = std::chrono::steady_clock::now();
+  return std::chrono::duration<double, std::milli>(finished - started).count();
 }
 
 void update_title(HWND hwnd) {
@@ -161,7 +182,8 @@ void set_origin_from_mouse(HWND hwnd, LPARAM lparam) {
   InvalidateRect(hwnd, nullptr, FALSE);
 }
 
-void draw_preview(HWND hwnd, HDC hdc) {
+double draw_preview(HWND hwnd, HDC hdc) {
+  const auto started = std::chrono::steady_clock::now();
   fit_image_rect(hwnd);
   RECT client{};
   GetClientRect(hwnd, &client);
@@ -204,6 +226,9 @@ void draw_preview(HWND hwnd, HDC hdc) {
   LineTo(hdc, origin_x, origin_y + 9);
   SelectObject(hdc, old_pen);
   DeleteObject(pen);
+  GdiFlush();
+  const auto finished = std::chrono::steady_clock::now();
+  return std::chrono::duration<double, std::milli>(finished - started).count();
 }
 
 void save_rendered(HWND hwnd) {
@@ -286,20 +311,107 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
   }
 }
 
+double average(const std::vector<double>& values) {
+  if (values.empty()) {
+    return 0.0;
+  }
+  return std::accumulate(values.begin(), values.end(), 0.0) / static_cast<double>(values.size());
+}
+
+double percentile(std::vector<double> values, double p) {
+  if (values.empty()) {
+    return 0.0;
+  }
+  std::sort(values.begin(), values.end());
+  const auto index = static_cast<std::size_t>(std::clamp(p, 0.0, 1.0) * static_cast<double>(values.size() - 1));
+  return values[index];
+}
+
+void write_benchmark(const TimingStats& stats) {
+  const auto parent = g_options.benchmark_out.parent_path();
+  if (!parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+
+  const double avg_frame = average(stats.frame_ms);
+  const double avg_render = average(stats.render_ms);
+  const double avg_draw = average(stats.draw_ms);
+  const double fps = avg_frame > 0.0 ? 1000.0 / avg_frame : 0.0;
+
+  std::ofstream out(g_options.benchmark_out);
+  out << "frames=" << stats.frame_ms.size() << "\n";
+  out << "image_width=" << g_state.width << "\n";
+  out << "image_height=" << g_state.height << "\n";
+  out << "avg_frame_ms=" << avg_frame << "\n";
+  out << "avg_fps=" << fps << "\n";
+  out << "avg_render_ms=" << avg_render << "\n";
+  out << "avg_draw_ms=" << avg_draw << "\n";
+  out << "p95_frame_ms=" << percentile(stats.frame_ms, 0.95) << "\n";
+  out << "p95_render_ms=" << percentile(stats.render_ms, 0.95) << "\n";
+  out << "p95_draw_ms=" << percentile(stats.draw_ms, 0.95) << "\n";
+}
+
+void run_benchmark(HWND hwnd) {
+  TimingStats stats;
+  stats.frame_ms.reserve(static_cast<std::size_t>(g_options.benchmark_frames));
+  stats.render_ms.reserve(static_cast<std::size_t>(g_options.benchmark_frames));
+  stats.draw_ms.reserve(static_cast<std::size_t>(g_options.benchmark_frames));
+
+  fit_image_rect(hwnd);
+  for (int i = 0; i < g_options.benchmark_frames; ++i) {
+    const auto frame_started = std::chrono::steady_clock::now();
+    const float t = static_cast<float>(i) / static_cast<float>(std::max(1, g_options.benchmark_frames - 1));
+    g_state.params.transform_origin_x = (0.08f + 0.84f * t) * static_cast<float>(g_state.width - 1);
+    g_state.params.transform_origin_y =
+        (0.5f + 0.35f * std::sin(t * 6.2831853f)) * static_cast<float>(g_state.height - 1);
+
+    stats.render_ms.push_back(render_preview());
+
+    HDC hdc = GetDC(hwnd);
+    stats.draw_ms.push_back(draw_preview(hwnd, hdc));
+    ReleaseDC(hwnd, hdc);
+
+    const auto frame_finished = std::chrono::steady_clock::now();
+    stats.frame_ms.push_back(std::chrono::duration<double, std::milli>(frame_finished - frame_started).count());
+  }
+
+  write_benchmark(stats);
+}
+
+AppOptions parse_options() {
+  AppOptions options;
+  int argc = 0;
+  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  for (int i = 1; argv && i < argc; ++i) {
+    const std::wstring arg = argv[i];
+    if (arg == L"--benchmark") {
+      options.benchmark = true;
+    } else if (arg == L"--benchmark-frames" && i + 1 < argc) {
+      options.benchmark_frames = std::max(1, _wtoi(argv[++i]));
+    } else if (arg == L"--benchmark-out" && i + 1 < argc) {
+      options.benchmark_out = argv[++i];
+    } else if ((arg == L"--input" || arg == L"-i") && i + 1 < argc) {
+      options.input = argv[++i];
+    } else if (!arg.empty() && arg[0] != L'-') {
+      options.input = arg;
+    }
+  }
+  if (argv) {
+    LocalFree(argv);
+  }
+  return options;
+}
+
 }  // namespace
 
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
+  g_options = parse_options();
   g_state.params.transform_origin_x = static_cast<float>(g_state.width - 1) * 0.5f;
   g_state.params.transform_origin_y = static_cast<float>(g_state.height - 1) * 0.5f;
   fill_source();
 
-  int argc = 0;
-  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  if (argv && argc > 1) {
-    load_png(argv[1]);
-  }
-  if (argv) {
-    LocalFree(argv);
+  if (!g_options.input.empty()) {
+    load_png(g_options.input);
   }
   render_preview();
 
@@ -331,6 +443,11 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
   update_title(hwnd);
   ShowWindow(hwnd, show_command);
   UpdateWindow(hwnd);
+
+  if (g_options.benchmark) {
+    run_benchmark(hwnd);
+    DestroyWindow(hwnd);
+  }
 
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

@@ -32,6 +32,14 @@ Quick path:
 
 On Windows this opens the native interactive preview window. Drag a PNG from Explorer onto the window to load it, then click or drag in the canvas to move the transform origin. You can also force the window explicitly with `.\scripts\rtk.ps1 gui`.
 
+Run the interactive-preview benchmark:
+
+```powershell
+.\scripts\rtk.ps1 bench --benchmark-frames 600
+```
+
+The benchmark starts the native preview executable, simulates a drag path through the same render/draw path, writes `out\benchmark.txt`, and prints average FPS plus frame/render/draw timing statistics.
+
 Process a PNG:
 
 ```powershell
