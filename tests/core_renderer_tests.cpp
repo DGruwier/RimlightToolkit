@@ -110,6 +110,29 @@ void transparent_pixels_do_not_receive_fill() {
   assert(destination[7] == 0);
 }
 
+void shadow_view_outputs_cast_mask() {
+  constexpr int width = 4;
+  constexpr int height = 1;
+  std::vector<std::uint8_t> source(width * height * 4, 0);
+  std::vector<std::uint8_t> destination(width * height * 4, 0);
+  source[3] = 255;
+
+  rtk::core::RenderParams params;
+  params.mode = rtk::core::LightMode::Directional;
+  params.output_view = rtk::core::OutputView::ShadowMask;
+  params.direction_angle_degrees = 0.0f;
+  params.shadow_distance = 2.0f;
+  params.shadow_strength = 1.0f;
+
+  const rtk::core::ImageView src{source.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
+  const rtk::core::MutableImageView dst{destination.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
+
+  const auto result = rtk::core::render(src, dst, params);
+  assert(result.status == rtk::core::RenderStatus::Ok);
+  assert(destination[4] > 0);
+  assert(destination[8] > 0);
+}
+
 }  // namespace
 
 int main() {
@@ -117,5 +140,6 @@ int main() {
   scaled_inverse_alpha_creates_inner_matte();
   directional_offset_creates_inner_matte();
   transparent_pixels_do_not_receive_fill();
+  shadow_view_outputs_cast_mask();
   return 0;
 }

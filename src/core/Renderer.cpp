@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <vector>
 
 namespace rtk::core {
 namespace {
@@ -165,6 +166,69 @@ bool dimensions_match(const ImageView& source, const MutableImageView& destinati
   return source.width == destination.width && source.height == destination.height;
 }
 
+void box_blur_horizontal(const std::vector<float>& input,
+                         std::vector<float>& output,
+                         int width,
+                         int height,
+                         int radius) {
+  if (radius <= 0) {
+    output = input;
+    return;
+  }
+
+  const int diameter = radius * 2 + 1;
+  for (int y = 0; y < height; ++y) {
+    float sum = 0.0f;
+    for (int ix = -radius; ix <= radius; ++ix) {
+      const int x = std::clamp(ix, 0, width - 1);
+      sum += input[y * width + x];
+    }
+    for (int x = 0; x < width; ++x) {
+      output[y * width + x] = sum / static_cast<float>(diameter);
+      const int remove_x = std::clamp(x - radius, 0, width - 1);
+      const int add_x = std::clamp(x + radius + 1, 0, width - 1);
+      sum += input[y * width + add_x] - input[y * width + remove_x];
+    }
+  }
+}
+
+void box_blur_vertical(const std::vector<float>& input,
+                       std::vector<float>& output,
+                       int width,
+                       int height,
+                       int radius) {
+  if (radius <= 0) {
+    output = input;
+    return;
+  }
+
+  const int diameter = radius * 2 + 1;
+  for (int x = 0; x < width; ++x) {
+    float sum = 0.0f;
+    for (int iy = -radius; iy <= radius; ++iy) {
+      const int y = std::clamp(iy, 0, height - 1);
+      sum += input[y * width + x];
+    }
+    for (int y = 0; y < height; ++y) {
+      output[y * width + x] = sum / static_cast<float>(diameter);
+      const int remove_y = std::clamp(y - radius, 0, height - 1);
+      const int add_y = std::clamp(y + radius + 1, 0, height - 1);
+      sum += input[add_y * width + x] - input[remove_y * width + x];
+    }
+  }
+}
+
+void iterative_box_blur(std::vector<float>& mask, int width, int height, int radius, int iterations) {
+  if (radius <= 0 || iterations <= 0) {
+    return;
+  }
+  std::vector<float> temp(mask.size(), 0.0f);
+  for (int i = 0; i < iterations; ++i) {
+    box_blur_horizontal(mask, temp, width, height, radius);
+    box_blur_vertical(temp, mask, width, height, radius);
+  }
+}
+
 float alpha_at_u8(const ImageView& image, int x, int y) noexcept {
   if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
     return 0.0f;
@@ -195,7 +259,8 @@ float sample_alpha_bilinear_u8(const ImageView& image, float x, float y) noexcep
   return ax0 + (ax1 - ax0) * ty;
 }
 
-void render_u8(const ImageView& source, const MutableImageView& destination, const RenderParams& params) {
+std::vector<float> build_base_mask_u8(const ImageView& source, const RenderParams& params) {
+  std::vector<float> mask(static_cast<std::size_t>(source.width) * source.height, 0.0f);
   const float scale = std::max(params.alpha_scale, 0.0001f);
   const float inverse_scale = 1.0f / scale;
   const float direction_radians = params.direction_angle_degrees * (kPi / 180.0f);
@@ -207,27 +272,131 @@ void render_u8(const ImageView& source, const MutableImageView& destination, con
   const float origin_y = params.transform_origin_y >= 0.0f
                              ? params.transform_origin_y
                              : (static_cast<float>(source.height - 1) * 0.5f);
+
+  for (int y = 0; y < source.height; ++y) {
+    const auto* src_row = static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y;
+    const float point_sy = origin_y + (static_cast<float>(y) - origin_y) * inverse_scale;
+    const float directional_sy = static_cast<float>(y) - direction_y;
+    for (int x = 0; x < source.width; ++x) {
+      const float src_a = src_row[x * 4 + 3] * (1.0f / 255.0f);
+      const float point_sx = origin_x + (static_cast<float>(x) - origin_x) * inverse_scale;
+      const float directional_sx = static_cast<float>(x) - direction_x;
+      const float sample_x = params.mode == LightMode::Directional ? directional_sx : point_sx;
+      const float sample_y = params.mode == LightMode::Directional ? directional_sy : point_sy;
+      mask[y * source.width + x] = inverse_alpha_matted_with_source(src_a, sample_alpha_bilinear_u8(source, sample_x, sample_y));
+    }
+  }
+  return mask;
+}
+
+std::vector<float> build_shadow_mask_u8(const ImageView& source, const RenderParams& params) {
+  std::vector<float> mask(static_cast<std::size_t>(source.width) * source.height, 0.0f);
+  const int steps = std::max(1, static_cast<int>(std::lround(params.shadow_distance)));
+  const float strength = std::max(0.0f, params.shadow_strength);
+  const float direction_radians = params.direction_angle_degrees * (kPi / 180.0f);
+  const float dir_x = std::cos(direction_radians);
+  const float dir_y = std::sin(direction_radians);
+  const float origin_x = params.transform_origin_x >= 0.0f
+                             ? params.transform_origin_x
+                             : (static_cast<float>(source.width - 1) * 0.5f);
+  const float origin_y = params.transform_origin_y >= 0.0f
+                             ? params.transform_origin_y
+                             : (static_cast<float>(source.height - 1) * 0.5f);
+
+  for (int y = 0; y < source.height; ++y) {
+    const auto* src_row = static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y;
+    for (int x = 0; x < source.width; ++x) {
+      const float a = src_row[x * 4 + 3] * (1.0f / 255.0f);
+      if (a <= 0.0f) {
+        continue;
+      }
+
+      float cast_x = dir_x;
+      float cast_y = dir_y;
+      if (params.mode == LightMode::Point) {
+        cast_x = static_cast<float>(x) - origin_x;
+        cast_y = static_cast<float>(y) - origin_y;
+        const float len = std::sqrt(cast_x * cast_x + cast_y * cast_y);
+        if (len <= 0.0001f) {
+          continue;
+        }
+        cast_x /= len;
+        cast_y /= len;
+      }
+
+      for (int step = 1; step <= steps; ++step) {
+        const float fade = 1.0f - (static_cast<float>(step - 1) / static_cast<float>(steps));
+        const int sx = static_cast<int>(std::lround(static_cast<float>(x) + cast_x * static_cast<float>(step)));
+        const int sy = static_cast<int>(std::lround(static_cast<float>(y) + cast_y * static_cast<float>(step)));
+        if (sx < 0 || sy < 0 || sx >= source.width || sy >= source.height) {
+          continue;
+        }
+        const std::size_t index = static_cast<std::size_t>(sy) * source.width + sx;
+        mask[index] = std::max(mask[index], a * strength * fade);
+      }
+    }
+  }
+  return mask;
+}
+
+void write_mask_u8(const MutableImageView& destination, const std::vector<float>& mask) {
+  for (int y = 0; y < destination.height; ++y) {
+    auto* dst_row = static_cast<std::uint8_t*>(destination.data) + destination.row_bytes * y;
+    for (int x = 0; x < destination.width; ++x) {
+      const std::uint8_t v = to_u8(mask[static_cast<std::size_t>(y) * destination.width + x]);
+      dst_row[x * 4 + 0] = v;
+      dst_row[x * 4 + 1] = v;
+      dst_row[x * 4 + 2] = v;
+      dst_row[x * 4 + 3] = 255;
+    }
+  }
+}
+
+void render_u8(const ImageView& source, const MutableImageView& destination, const RenderParams& params) {
   const float fill_opacity = clamp01(params.fill_opacity) * clamp01(params.fill_color.a);
   const float source_opacity = clamp01(params.source_opacity);
   const float fill_r = clamp01(params.fill_color.r);
   const float fill_g = clamp01(params.fill_color.g);
   const float fill_b = clamp01(params.fill_color.b);
+  const int blur_radius = std::max(0, static_cast<int>(std::lround(params.mask_blur_radius)));
+  const int blur_iterations = std::max(0, params.mask_blur_iterations);
+
+  std::vector<float> base_mask = build_base_mask_u8(source, params);
+  if (params.output_view == OutputView::BaseMask) {
+    write_mask_u8(destination, base_mask);
+    return;
+  }
+
+  std::vector<float> shadow_mask = build_shadow_mask_u8(source, params);
+  if (params.output_view == OutputView::ShadowMask) {
+    write_mask_u8(destination, shadow_mask);
+    return;
+  }
+
+  std::vector<float> final_mask(base_mask.size(), 0.0f);
+  for (std::size_t i = 0; i < final_mask.size(); ++i) {
+    final_mask[i] = std::max(base_mask[i], shadow_mask[i]);
+  }
+  iterative_box_blur(final_mask, source.width, source.height, blur_radius, blur_iterations);
+  for (int y = 0; y < source.height; ++y) {
+    const auto* src_row = static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y;
+    for (int x = 0; x < source.width; ++x) {
+      final_mask[static_cast<std::size_t>(y) * source.width + x] *= src_row[x * 4 + 3] * (1.0f / 255.0f);
+    }
+  }
+  if (params.output_view == OutputView::BlurredMask) {
+    write_mask_u8(destination, final_mask);
+    return;
+  }
 
   for (int y = 0; y < source.height; ++y) {
     const auto* src_row = static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y;
     auto* dst_row = static_cast<std::uint8_t*>(destination.data) + destination.row_bytes * y;
-    const float point_sy = origin_y + (static_cast<float>(y) - origin_y) * inverse_scale;
-    const float directional_sy = static_cast<float>(y) - direction_y;
 
     for (int x = 0; x < source.width; ++x) {
       const int offset = x * 4;
       const float src_a = (src_row[offset + 3] * (1.0f / 255.0f)) * source_opacity;
-      const float point_sx = origin_x + (static_cast<float>(x) - origin_x) * inverse_scale;
-      const float directional_sx = static_cast<float>(x) - direction_x;
-      const float sample_x = params.mode == LightMode::Directional ? directional_sx : point_sx;
-      const float sample_y = params.mode == LightMode::Directional ? directional_sy : point_sy;
-      const float sampled_alpha = sample_alpha_bilinear_u8(source, sample_x, sample_y);
-      const float fill_a = inverse_alpha_matted_with_source(src_a, sampled_alpha) * fill_opacity;
+      const float fill_a = clamp01(final_mask[static_cast<std::size_t>(y) * source.width + x] * fill_opacity);
       const float out_a = fill_a + src_a * (1.0f - fill_a);
 
       if (out_a <= std::numeric_limits<float>::epsilon()) {

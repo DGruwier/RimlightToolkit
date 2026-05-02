@@ -20,6 +20,9 @@ struct Args {
   rtk::core::LightMode mode = rtk::core::LightMode::Directional;
   float angle = 45.0f;
   float distance = 12.0f;
+  float blur = 1.0f;
+  float shadow_distance = 4.0f;
+  rtk::core::OutputView output_view = rtk::core::OutputView::Final;
   float scale = 1.08f;
   float origin_x = -1.0f;
   float origin_y = -1.0f;
@@ -67,6 +70,23 @@ bool parse_args(int argc, char** argv, Args& args) {
       if (!read_value(i, argc, argv, args.angle)) return false;
     } else if (key == "--distance") {
       if (!read_value(i, argc, argv, args.distance)) return false;
+    } else if (key == "--blur") {
+      if (!read_value(i, argc, argv, args.blur)) return false;
+    } else if (key == "--shadow-distance") {
+      if (!read_value(i, argc, argv, args.shadow_distance)) return false;
+    } else if (key == "--view" && i + 1 < argc) {
+      const std::string view = argv[++i];
+      if (view == "final") {
+        args.output_view = rtk::core::OutputView::Final;
+      } else if (view == "base") {
+        args.output_view = rtk::core::OutputView::BaseMask;
+      } else if (view == "shadow") {
+        args.output_view = rtk::core::OutputView::ShadowMask;
+      } else if (view == "blurred") {
+        args.output_view = rtk::core::OutputView::BlurredMask;
+      } else {
+        return false;
+      }
     } else if (key == "--scale") {
       if (!read_value(i, argc, argv, args.scale)) return false;
     } else if (key == "--origin-x") {
@@ -152,6 +172,7 @@ int main(int argc, char** argv) {
   if (!parse_args(argc, argv, args)) {
     std::cerr << "Usage: rtk_preview_cli [--input image.png] [--out image.png] [--width n] [--height n] "
                  "[--mode directional|point] [--angle degrees] [--distance px] "
+                 "[--blur px] [--shadow-distance px] [--view final|base|shadow|blurred] "
                  "[--scale value] [--origin-x px] [--origin-y px] [--opacity value] "
                  "[--color-r value] [--color-g value] [--color-b value] [--color-a value]\n";
     return 2;
@@ -172,8 +193,11 @@ int main(int argc, char** argv) {
 
   rtk::core::RenderParams params;
   params.mode = args.mode;
+  params.output_view = args.output_view;
   params.direction_angle_degrees = args.angle;
   params.direction_distance = args.distance;
+  params.mask_blur_radius = args.blur;
+  params.shadow_distance = args.shadow_distance;
   params.alpha_scale = args.scale;
   params.transform_origin_x = args.origin_x;
   params.transform_origin_y = args.origin_y;

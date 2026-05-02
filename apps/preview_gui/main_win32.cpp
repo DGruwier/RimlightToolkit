@@ -31,6 +31,9 @@ constexpr int kIdBlue = 1005;
 constexpr int kIdPointMode = 1006;
 constexpr int kIdAngle = 1007;
 constexpr int kIdDistance = 1008;
+constexpr int kIdBlur = 1009;
+constexpr int kIdShadowDistance = 1010;
+constexpr int kIdOutputView = 1011;
 
 struct RectF {
   float x = 0.0f;
@@ -66,8 +69,11 @@ struct TimingStats {
 
 struct UiControls {
   HWND point_mode = nullptr;
+  HWND output_view = nullptr;
   HWND angle = nullptr;
   HWND distance = nullptr;
+  HWND blur = nullptr;
+  HWND shadow_distance = nullptr;
   HWND scale = nullptr;
   HWND opacity = nullptr;
   HWND red = nullptr;
@@ -145,13 +151,31 @@ HWND create_checkbox(HWND parent, int id, const wchar_t* text) {
                          nullptr);
 }
 
+HWND create_combo(HWND parent, int id) {
+  return CreateWindowExW(0,
+                         WC_COMBOBOXW,
+                         L"",
+                         WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+                         0,
+                         0,
+                         10,
+                         120,
+                         parent,
+                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                         GetModuleHandleW(nullptr),
+                         nullptr);
+}
+
 void sync_controls_from_params() {
   if (!g_ui.scale) {
     return;
   }
   SendMessageW(g_ui.point_mode, BM_SETCHECK, g_state.params.mode == rtk::core::LightMode::Point ? BST_CHECKED : BST_UNCHECKED, 0);
+  SendMessageW(g_ui.output_view, CB_SETCURSEL, static_cast<WPARAM>(g_state.params.output_view), 0);
   set_slider(g_ui.angle, 0, 360, static_cast<int>(std::lround(g_state.params.direction_angle_degrees)));
   set_slider(g_ui.distance, 0, 256, static_cast<int>(std::lround(g_state.params.direction_distance)));
+  set_slider(g_ui.blur, 0, 32, static_cast<int>(std::lround(g_state.params.mask_blur_radius)));
+  set_slider(g_ui.shadow_distance, 0, 64, static_cast<int>(std::lround(g_state.params.shadow_distance)));
   set_slider(g_ui.scale, 50, 400, static_cast<int>(std::lround(g_state.params.alpha_scale * 100.0f)));
   set_slider(g_ui.opacity, 0, 100, static_cast<int>(std::lround(g_state.params.fill_opacity * 100.0f)));
   set_slider(g_ui.red, 0, 255, static_cast<int>(std::lround(std::clamp(g_state.params.fill_color.r, 0.0f, 1.0f) * 255.0f)));
@@ -166,8 +190,12 @@ void apply_controls_to_params() {
   g_state.params.mode = SendMessageW(g_ui.point_mode, BM_GETCHECK, 0, 0) == BST_CHECKED
                             ? rtk::core::LightMode::Point
                             : rtk::core::LightMode::Directional;
+  const auto view_index = static_cast<int>(SendMessageW(g_ui.output_view, CB_GETCURSEL, 0, 0));
+  g_state.params.output_view = static_cast<rtk::core::OutputView>(std::max(0, view_index));
   g_state.params.direction_angle_degrees = static_cast<float>(slider_pos(g_ui.angle));
   g_state.params.direction_distance = static_cast<float>(slider_pos(g_ui.distance));
+  g_state.params.mask_blur_radius = static_cast<float>(slider_pos(g_ui.blur));
+  g_state.params.shadow_distance = static_cast<float>(slider_pos(g_ui.shadow_distance));
   g_state.params.alpha_scale = static_cast<float>(slider_pos(g_ui.scale)) / 100.0f;
   g_state.params.fill_opacity = static_cast<float>(slider_pos(g_ui.opacity)) / 100.0f;
   g_state.params.fill_color.r = static_cast<float>(slider_pos(g_ui.red)) / 255.0f;
@@ -177,10 +205,20 @@ void apply_controls_to_params() {
 
 void create_controls(HWND hwnd) {
   g_ui.point_mode = create_checkbox(hwnd, kIdPointMode, L"Point source");
+  create_label(hwnd, L"View");
+  g_ui.output_view = create_combo(hwnd, kIdOutputView);
+  SendMessageW(g_ui.output_view, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Final"));
+  SendMessageW(g_ui.output_view, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Base mask"));
+  SendMessageW(g_ui.output_view, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Shadow mask"));
+  SendMessageW(g_ui.output_view, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Blurred mask"));
   create_label(hwnd, L"Direction angle");
   g_ui.angle = create_slider(hwnd, kIdAngle);
   create_label(hwnd, L"Direction distance");
   g_ui.distance = create_slider(hwnd, kIdDistance);
+  create_label(hwnd, L"Blur");
+  g_ui.blur = create_slider(hwnd, kIdBlur);
+  create_label(hwnd, L"Shadow distance");
+  g_ui.shadow_distance = create_slider(hwnd, kIdShadowDistance);
   create_label(hwnd, L"Scale");
   g_ui.scale = create_slider(hwnd, kIdScale);
   create_label(hwnd, L"Opacity");
@@ -212,6 +250,9 @@ void layout_controls(HWND hwnd) {
     } else if (wcscmp(class_name, L"Button") == 0 || wcscmp(class_name, L"BUTTON") == 0) {
       MoveWindow(child, control_x, y, control_w, kSliderHeight, TRUE);
       y += kSliderHeight + 10;
+    } else if (wcscmp(class_name, L"ComboBox") == 0 || wcscmp(class_name, L"COMBOBOX") == 0) {
+      MoveWindow(child, control_x, y, control_w, 120, TRUE);
+      y += 34;
     } else {
       MoveWindow(child, control_x, y, control_w, kSliderHeight, TRUE);
       y += kSliderHeight + 14;
@@ -337,8 +378,19 @@ void set_origin_from_mouse(HWND hwnd, LPARAM lparam) {
   if (!client_to_image(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam), image_x, image_y)) {
     return;
   }
-  g_state.params.transform_origin_x = image_x;
-  g_state.params.transform_origin_y = image_y;
+  if (g_state.params.mode == rtk::core::LightMode::Directional) {
+    const float center_x = static_cast<float>(g_state.width - 1) * 0.5f;
+    const float center_y = static_cast<float>(g_state.height - 1) * 0.5f;
+    float degrees = std::atan2(image_y - center_y, image_x - center_x) * (180.0f / 3.14159265358979323846f);
+    if (degrees < 0.0f) {
+      degrees += 360.0f;
+    }
+    g_state.params.direction_angle_degrees = degrees;
+    sync_controls_from_params();
+  } else {
+    g_state.params.transform_origin_x = image_x;
+    g_state.params.transform_origin_y = image_y;
+  }
   render_preview();
   repaint_now(hwnd);
 }
@@ -396,6 +448,13 @@ double draw_preview(HWND hwnd, HDC hdc) {
     MoveToEx(hdc, cx, cy, nullptr);
     LineTo(hdc, x2, y2);
     Ellipse(hdc, x2 - 3, y2 - 3, x2 + 4, y2 + 4);
+    if (g_state.dragging) {
+      HBRUSH dot = CreateSolidBrush(RGB(255, 210, 64));
+      HGDIOBJ old_brush = SelectObject(hdc, dot);
+      Ellipse(hdc, cx - 5, cy - 5, cx + 6, cy + 6);
+      SelectObject(hdc, old_brush);
+      DeleteObject(dot);
+    }
   } else {
     const int origin_x = static_cast<int>(g_state.image_rect.x +
         (g_state.params.transform_origin_x / static_cast<float>(g_state.width)) * g_state.image_rect.w);
@@ -485,7 +544,8 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       repaint_now(hwnd);
       return 0;
     case WM_COMMAND:
-      if (LOWORD(wparam) == kIdPointMode) {
+      if (LOWORD(wparam) == kIdPointMode ||
+          (LOWORD(wparam) == kIdOutputView && HIWORD(wparam) == CBN_SELCHANGE)) {
         apply_controls_to_params();
         render_preview();
         update_title(hwnd);
