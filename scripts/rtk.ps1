@@ -8,24 +8,95 @@ $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $BuildDir = if ($env:RTK_BUILD_DIR) { $env:RTK_BUILD_DIR } else { Join-Path $Root "build" }
 $Config = if ($env:RTK_CONFIG) { $env:RTK_CONFIG } else { "Release" }
 $PreviewArgs = $args
+$ToolsDir = Join-Path $Root ".rtk\tools"
+$CMakeVersion = if ($env:RTK_CMAKE_VERSION) { $env:RTK_CMAKE_VERSION } else { "3.29.8" }
+$script:CMakeExe = $null
+$script:CTestExe = $null
 
 function Write-Step($Message) {
   Write-Host "[rtk] $Message"
 }
 
-function Require-Tool($Name) {
+function Find-Tool($Name) {
   $tool = Get-Command $Name -ErrorAction SilentlyContinue
-  if (-not $tool) {
-    throw "Missing required tool '$Name'. Install it and make sure it is on PATH."
+  if ($tool) {
+    return $tool.Source
   }
-  return $tool
+  return $null
+}
+
+function Get-CMake {
+  $fromPath = Find-Tool "cmake"
+  if ($fromPath) {
+    return $fromPath
+  }
+
+  $portable = Join-Path $ToolsDir "cmake-$CMakeVersion-windows-x86_64\bin\cmake.exe"
+  if (Test-Path $portable) {
+    return $portable
+  }
+
+  Write-Step "cmake not found; downloading portable CMake $CMakeVersion"
+  New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
+
+  $zip = Join-Path $ToolsDir "cmake-$CMakeVersion-windows-x86_64.zip"
+  $url = "https://github.com/Kitware/CMake/releases/download/v$CMakeVersion/cmake-$CMakeVersion-windows-x86_64.zip"
+  Invoke-WebRequest -Uri $url -OutFile $zip
+  Expand-Archive -Path $zip -DestinationPath $ToolsDir -Force
+
+  if (-not (Test-Path $portable)) {
+    throw "Portable CMake download did not produce $portable"
+  }
+  return $portable
+}
+
+function Get-CTest {
+  if (-not $script:CMakeExe) {
+    $script:CMakeExe = Get-CMake
+  }
+
+  $besideCMake = Join-Path (Split-Path $script:CMakeExe -Parent) "ctest.exe"
+  if (Test-Path $besideCMake) {
+    return $besideCMake
+  }
+
+  $fromPath = Find-Tool "ctest"
+  if ($fromPath) {
+    return $fromPath
+  }
+
+  throw "ctest was not found beside cmake or on PATH."
+}
+
+function Find-VisualStudioGenerator {
+  $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+  if (-not (Test-Path $vswhere)) {
+    return $null
+  }
+
+  $version = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationVersion
+  if (-not $version) {
+    return $null
+  }
+
+  if ($version.StartsWith("17.")) {
+    return "Visual Studio 17 2022"
+  }
+  if ($version.StartsWith("16.")) {
+    return "Visual Studio 16 2019"
+  }
+  if ($version.StartsWith("15.")) {
+    return "Visual Studio 15 2017"
+  }
+  return $null
 }
 
 function Test-Dependencies {
   Write-Step "checking dependencies"
-  Require-Tool "cmake" | Out-Null
+  $script:CMakeExe = Get-CMake
+  $script:CTestExe = Get-CTest
 
-  $cmakeVersion = (& cmake --version | Select-Object -First 1)
+  $cmakeVersion = (& $script:CMakeExe --version | Select-Object -First 1)
   Write-Step $cmakeVersion
 
   $ninja = Get-Command "ninja" -ErrorAction SilentlyContinue
@@ -39,6 +110,8 @@ function Test-Dependencies {
   $compiler = $compilerNames | ForEach-Object { Get-Command $_ -ErrorAction SilentlyContinue } | Select-Object -First 1
   if ($compiler) {
     Write-Step "compiler candidate found at $($compiler.Source)"
+  } elseif (Find-VisualStudioGenerator) {
+    Write-Step "Visual Studio generator available"
   } else {
     Write-Step "no compiler found directly on PATH; CMake may still find a Visual Studio toolchain"
   }
@@ -53,15 +126,20 @@ function Configure-Project {
   $configure = @("-S", $Root, "-B", $BuildDir, "-DCMAKE_BUILD_TYPE=$Config")
   if (Get-Command "ninja" -ErrorAction SilentlyContinue) {
     $configure += @("-G", "Ninja")
+  } else {
+    $vsGenerator = Find-VisualStudioGenerator
+    if ($vsGenerator) {
+      $configure += @("-G", $vsGenerator, "-A", "x64")
+    }
   }
-  & cmake @configure
+  & $script:CMakeExe @configure
 }
 
 function Build-Project {
   Test-Dependencies
   Configure-Project
   Write-Step "building latest sources"
-  & cmake --build $BuildDir --config $Config
+  & $script:CMakeExe --build $BuildDir --config $Config
 }
 
 function Find-PreviewExecutable {
@@ -90,7 +168,7 @@ function Run-Preview {
 function Run-Tests {
   Build-Project
   Write-Step "running tests"
-  & ctest --test-dir $BuildDir --build-config $Config --output-on-failure
+  & $script:CTestExe --test-dir $BuildDir --build-config $Config --output-on-failure
 }
 
 function Clean-Build {

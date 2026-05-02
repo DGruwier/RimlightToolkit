@@ -36,7 +36,7 @@ On macOS/Linux:
 ./scripts/rtk.sh run --out out/preview.ppm --blur 12 --offset-x 18 --offset-y 14 --rim-width 3
 ```
 
-The launch scripts support `check`, `build`, `test`, `run`, and `clean`. They verify required dependencies, configure the build if needed, build the latest sources, locate the newest preview harness binary, and run it with any preview arguments passed through.
+The launch scripts support `check`, `build`, `test`, `run`, and `clean`. They verify required dependencies, configure the build if needed, build the latest sources, locate the newest preview harness binary, and run it with any preview arguments passed through. On Windows, `rtk.ps1` will download a repo-local portable CMake into `.rtk/tools` when CMake is not already on `PATH`, then use Ninja or an installed Visual Studio generator.
 
 Manual path:
 
