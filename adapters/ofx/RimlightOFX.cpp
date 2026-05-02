@@ -201,15 +201,15 @@ OfxPlugin g_plugin = {
 
 }  // namespace
 
-extern "C" OfxExport int OfxGetNumberOfPlugins() {
+OfxExport int OfxGetNumberOfPlugins() {
   return 1;
 }
 
-extern "C" OfxExport OfxPlugin* OfxGetPlugin(int index) {
+OfxExport OfxPlugin* OfxGetPlugin(int index) {
   return index == 0 ? &g_plugin : nullptr;
 }
 
-extern "C" OfxExport OfxStatus OfxSetHost(const OfxHost* host) {
+OfxExport OfxStatus OfxSetHost(const OfxHost* host) {
   g_host = host;
   return kOfxStatOK;
 }
