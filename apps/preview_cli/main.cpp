@@ -41,20 +41,20 @@ bool parse_args(int argc, char** argv, Args& args) {
     const std::string key = argv[i];
     if (key == "--out" && i + 1 < argc) {
       args.out = argv[++i];
-    } else if (key == "--width" && !read_value(i, argc, argv, args.width)) {
-      return false;
-    } else if (key == "--height" && !read_value(i, argc, argv, args.height)) {
-      return false;
-    } else if (key == "--blur" && !read_value(i, argc, argv, args.blur)) {
-      return false;
-    } else if (key == "--offset-x" && !read_value(i, argc, argv, args.offset_x)) {
-      return false;
-    } else if (key == "--offset-y" && !read_value(i, argc, argv, args.offset_y)) {
-      return false;
-    } else if (key == "--rim-width" && !read_value(i, argc, argv, args.rim_width)) {
-      return false;
-    } else if (key == "--rim-intensity" && !read_value(i, argc, argv, args.rim_intensity)) {
-      return false;
+    } else if (key == "--width") {
+      if (!read_value(i, argc, argv, args.width)) return false;
+    } else if (key == "--height") {
+      if (!read_value(i, argc, argv, args.height)) return false;
+    } else if (key == "--blur") {
+      if (!read_value(i, argc, argv, args.blur)) return false;
+    } else if (key == "--offset-x") {
+      if (!read_value(i, argc, argv, args.offset_x)) return false;
+    } else if (key == "--offset-y") {
+      if (!read_value(i, argc, argv, args.offset_y)) return false;
+    } else if (key == "--rim-width") {
+      if (!read_value(i, argc, argv, args.rim_width)) return false;
+    } else if (key == "--rim-intensity") {
+      if (!read_value(i, argc, argv, args.rim_intensity)) return false;
     } else {
       return false;
     }

@@ -24,6 +24,22 @@ docs/                      Architecture and SDK notes
 
 ## Build Core, Tests, and Preview Harness
 
+Quick path:
+
+```powershell
+.\scripts\rtk.ps1 run --out out\preview.ppm --blur 12 --offset-x 18 --offset-y 14 --rim-width 3
+```
+
+On macOS/Linux:
+
+```bash
+./scripts/rtk.sh run --out out/preview.ppm --blur 12 --offset-x 18 --offset-y 14 --rim-width 3
+```
+
+The launch scripts support `check`, `build`, `test`, `run`, and `clean`. They verify required dependencies, configure the build if needed, build the latest sources, locate the newest preview harness binary, and run it with any preview arguments passed through.
+
+Manual path:
+
 ```powershell
 cmake -S . -B build -G "Ninja"
 cmake --build build

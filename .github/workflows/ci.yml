@@ -17,4 +17,4 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
       - name: Generate preview frame
-        run: ./build/apps/preview_cli/rtk_preview_cli --out out/preview.ppm --blur 12 --offset-x 18 --offset-y 14 --rim-width 3
+        run: ./scripts/rtk.sh run --out out/preview.ppm --blur 12 --offset-x 18 --offset-y 14 --rim-width 3
