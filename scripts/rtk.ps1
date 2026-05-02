@@ -17,6 +17,12 @@ function Write-Step($Message) {
   Write-Host "[rtk] $Message"
 }
 
+function Assert-NativeSuccess($Action) {
+  if ($LASTEXITCODE -ne 0) {
+    throw "$Action failed with exit code $LASTEXITCODE. If the preview app is open, close it and rerun the command."
+  }
+}
+
 function Find-Tool($Name) {
   $tool = Get-Command $Name -ErrorAction SilentlyContinue
   if ($tool) {
@@ -133,6 +139,7 @@ function Configure-Project {
     }
   }
   & $script:CMakeExe @configure
+  Assert-NativeSuccess "CMake configure"
 }
 
 function Build-Project {
@@ -140,6 +147,7 @@ function Build-Project {
   Configure-Project
   Write-Step "building latest sources"
   & $script:CMakeExe --build $BuildDir --config $Config
+  Assert-NativeSuccess "CMake build"
 }
 
 function Find-PreviewExecutable([bool]$PreferGui) {
@@ -181,6 +189,7 @@ function Run-Preview {
   $exe = Find-PreviewExecutable $preferGui
   Write-Step "running $exe $($PreviewArgs -join ' ')"
   & $exe @PreviewArgs
+  Assert-NativeSuccess "Preview run"
 }
 
 function Run-GuiPreview {
@@ -188,6 +197,7 @@ function Run-GuiPreview {
   $exe = Find-PreviewExecutable $true
   Write-Step "running $exe $($PreviewArgs -join ' ')"
   & $exe @PreviewArgs
+  Assert-NativeSuccess "GUI preview run"
 }
 
 function Run-Benchmark {
@@ -211,6 +221,7 @@ function Run-Tests {
   Build-Project
   Write-Step "running tests"
   & $script:CTestExe --test-dir $BuildDir --build-config $Config --output-on-failure
+  Assert-NativeSuccess "CTest"
 }
 
 function Clean-Build {

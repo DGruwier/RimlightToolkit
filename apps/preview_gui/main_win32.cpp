@@ -1,6 +1,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <windowsx.h>
+#include <commctrl.h>
 #include <shellapi.h>
 
 #include "lodepng.h"
@@ -17,6 +18,16 @@
 #include <vector>
 
 namespace {
+
+constexpr int kPanelWidth = 260;
+constexpr int kPanelPadding = 18;
+constexpr int kSliderHeight = 34;
+constexpr int kLabelHeight = 20;
+constexpr int kIdScale = 1001;
+constexpr int kIdOpacity = 1002;
+constexpr int kIdRed = 1003;
+constexpr int kIdGreen = 1004;
+constexpr int kIdBlue = 1005;
 
 struct RectF {
   float x = 0.0f;
@@ -50,8 +61,17 @@ struct TimingStats {
   std::vector<double> draw_ms;
 };
 
+struct UiControls {
+  HWND scale = nullptr;
+  HWND opacity = nullptr;
+  HWND red = nullptr;
+  HWND green = nullptr;
+  HWND blue = nullptr;
+};
+
 PreviewState g_state;
 AppOptions g_options;
+UiControls g_ui;
 
 std::string narrow(const std::wstring& value) {
   if (value.empty()) {
@@ -63,6 +83,104 @@ std::string narrow(const std::wstring& value) {
   WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), result.data(), size,
                       nullptr, nullptr);
   return result;
+}
+
+int slider_pos(HWND slider) {
+  return static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
+}
+
+void set_slider(HWND slider, int min_value, int max_value, int value) {
+  SendMessageW(slider, TBM_SETRANGE, TRUE, MAKELPARAM(min_value, max_value));
+  SendMessageW(slider, TBM_SETPOS, TRUE, value);
+}
+
+HWND create_label(HWND parent, const wchar_t* text) {
+  return CreateWindowExW(0,
+                         L"STATIC",
+                         text,
+                         WS_CHILD | WS_VISIBLE,
+                         0,
+                         0,
+                         10,
+                         kLabelHeight,
+                         parent,
+                         nullptr,
+                         GetModuleHandleW(nullptr),
+                         nullptr);
+}
+
+HWND create_slider(HWND parent, int id) {
+  return CreateWindowExW(0,
+                         TRACKBAR_CLASSW,
+                         L"",
+                         WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS,
+                         0,
+                         0,
+                         10,
+                         kSliderHeight,
+                         parent,
+                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                         GetModuleHandleW(nullptr),
+                         nullptr);
+}
+
+void sync_controls_from_params() {
+  if (!g_ui.scale) {
+    return;
+  }
+  set_slider(g_ui.scale, 50, 400, static_cast<int>(std::lround(g_state.params.alpha_scale * 100.0f)));
+  set_slider(g_ui.opacity, 0, 100, static_cast<int>(std::lround(g_state.params.fill_opacity * 100.0f)));
+  set_slider(g_ui.red, 0, 255, static_cast<int>(std::lround(std::clamp(g_state.params.fill_color.r, 0.0f, 1.0f) * 255.0f)));
+  set_slider(g_ui.green, 0, 255, static_cast<int>(std::lround(std::clamp(g_state.params.fill_color.g, 0.0f, 1.0f) * 255.0f)));
+  set_slider(g_ui.blue, 0, 255, static_cast<int>(std::lround(std::clamp(g_state.params.fill_color.b, 0.0f, 1.0f) * 255.0f)));
+}
+
+void apply_controls_to_params() {
+  if (!g_ui.scale) {
+    return;
+  }
+  g_state.params.alpha_scale = static_cast<float>(slider_pos(g_ui.scale)) / 100.0f;
+  g_state.params.fill_opacity = static_cast<float>(slider_pos(g_ui.opacity)) / 100.0f;
+  g_state.params.fill_color.r = static_cast<float>(slider_pos(g_ui.red)) / 255.0f;
+  g_state.params.fill_color.g = static_cast<float>(slider_pos(g_ui.green)) / 255.0f;
+  g_state.params.fill_color.b = static_cast<float>(slider_pos(g_ui.blue)) / 255.0f;
+}
+
+void create_controls(HWND hwnd) {
+  create_label(hwnd, L"Scale");
+  g_ui.scale = create_slider(hwnd, kIdScale);
+  create_label(hwnd, L"Opacity");
+  g_ui.opacity = create_slider(hwnd, kIdOpacity);
+  create_label(hwnd, L"Red");
+  g_ui.red = create_slider(hwnd, kIdRed);
+  create_label(hwnd, L"Green");
+  g_ui.green = create_slider(hwnd, kIdGreen);
+  create_label(hwnd, L"Blue");
+  g_ui.blue = create_slider(hwnd, kIdBlue);
+  sync_controls_from_params();
+}
+
+void layout_controls(HWND hwnd) {
+  RECT client{};
+  GetClientRect(hwnd, &client);
+  const int panel_x = std::max(0L, client.right - kPanelWidth);
+  const int control_x = panel_x + kPanelPadding;
+  const int control_w = std::max(40, kPanelWidth - kPanelPadding * 2);
+  int y = kPanelPadding;
+
+  HWND child = GetWindow(hwnd, GW_CHILD);
+  while (child) {
+    wchar_t class_name[32] = {};
+    GetClassNameW(child, class_name, 32);
+    if (wcscmp(class_name, L"Static") == 0 || wcscmp(class_name, L"STATIC") == 0) {
+      MoveWindow(child, control_x, y, control_w, kLabelHeight, TRUE);
+      y += kLabelHeight;
+    } else {
+      MoveWindow(child, control_x, y, control_w, kSliderHeight, TRUE);
+      y += kSliderHeight + 14;
+    }
+    child = GetWindow(child, GW_HWNDNEXT);
+  }
 }
 
 void fill_source() {
@@ -146,7 +264,7 @@ void update_title(HWND hwnd) {
 void fit_image_rect(HWND hwnd) {
   RECT client{};
   GetClientRect(hwnd, &client);
-  const float client_w = static_cast<float>(std::max(1L, client.right - client.left));
+  const float client_w = static_cast<float>(std::max(1L, client.right - client.left - kPanelWidth));
   const float client_h = static_cast<float>(std::max(1L, client.bottom - client.top));
   const float scale = std::min(client_w / static_cast<float>(g_state.width),
                                client_h / static_cast<float>(g_state.height));
@@ -194,6 +312,16 @@ double draw_preview(HWND hwnd, HDC hdc) {
   HBRUSH background = CreateSolidBrush(RGB(24, 24, 24));
   FillRect(hdc, &client, background);
   DeleteObject(background);
+  RECT panel{std::max(0L, client.right - kPanelWidth), client.top, client.right, client.bottom};
+  HBRUSH panel_brush = CreateSolidBrush(RGB(34, 34, 34));
+  FillRect(hdc, &panel, panel_brush);
+  DeleteObject(panel_brush);
+  HPEN separator = CreatePen(PS_SOLID, 1, RGB(58, 58, 58));
+  HGDIOBJ old_separator = SelectObject(hdc, separator);
+  MoveToEx(hdc, panel.left, panel.top, nullptr);
+  LineTo(hdc, panel.left, panel.bottom);
+  SelectObject(hdc, old_separator);
+  DeleteObject(separator);
 
   BITMAPINFO info{};
   info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -252,6 +380,8 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
   switch (message) {
     case WM_CREATE:
       DragAcceptFiles(hwnd, TRUE);
+      create_controls(hwnd);
+      layout_controls(hwnd);
       return 0;
     case WM_DROPFILES: {
       HDROP drop = reinterpret_cast<HDROP>(wparam);
@@ -293,17 +423,38 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       } else {
         return 0;
       }
+      sync_controls_from_params();
+      render_preview();
+      update_title(hwnd);
+      repaint_now(hwnd);
+      return 0;
+    case WM_HSCROLL:
+      apply_controls_to_params();
       render_preview();
       update_title(hwnd);
       repaint_now(hwnd);
       return 0;
     case WM_SIZE:
+      layout_controls(hwnd);
       InvalidateRect(hwnd, nullptr, FALSE);
       return 0;
+    case WM_ERASEBKGND:
+      return 1;
     case WM_PAINT: {
       PAINTSTRUCT ps{};
       HDC hdc = BeginPaint(hwnd, &ps);
-      draw_preview(hwnd, hdc);
+      RECT client{};
+      GetClientRect(hwnd, &client);
+      const int width = std::max(1L, client.right - client.left);
+      const int height = std::max(1L, client.bottom - client.top);
+      HDC memory_dc = CreateCompatibleDC(hdc);
+      HBITMAP memory_bitmap = CreateCompatibleBitmap(hdc, width, height);
+      HGDIOBJ old_bitmap = SelectObject(memory_dc, memory_bitmap);
+      draw_preview(hwnd, memory_dc);
+      BitBlt(hdc, 0, 0, width, height, memory_dc, 0, 0, SRCCOPY);
+      SelectObject(memory_dc, old_bitmap);
+      DeleteObject(memory_bitmap);
+      DeleteDC(memory_dc);
       EndPaint(hwnd, &ps);
       return 0;
     }
@@ -409,6 +560,11 @@ AppOptions parse_options() {
 }  // namespace
 
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
+  INITCOMMONCONTROLSEX controls{};
+  controls.dwSize = sizeof(controls);
+  controls.dwICC = ICC_BAR_CLASSES;
+  InitCommonControlsEx(&controls);
+
   g_options = parse_options();
   g_state.params.transform_origin_x = static_cast<float>(g_state.width - 1) * 0.5f;
   g_state.params.transform_origin_y = static_cast<float>(g_state.height - 1) * 0.5f;
