@@ -1,11 +1,22 @@
 #include "rtk/core/Renderer.hpp"
 
 #include <cassert>
-#include <cmath>
 #include <cstdint>
 #include <vector>
 
 namespace {
+
+std::vector<std::uint8_t> render_u8(const std::vector<std::uint8_t>& source,
+                                    int width,
+                                    int height,
+                                    rtk::core::RenderParams params) {
+  std::vector<std::uint8_t> destination(source.size(), 0);
+  const rtk::core::ImageView src{source.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
+  const rtk::core::MutableImageView dst{destination.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
+  const auto result = rtk::core::render(src, dst, params);
+  assert(result.status == rtk::core::RenderStatus::Ok);
+  return destination;
+}
 
 void render_rejects_bad_inputs() {
   rtk::core::RenderParams params;
@@ -15,68 +26,199 @@ void render_rejects_bad_inputs() {
   assert(result.status == rtk::core::RenderStatus::InvalidInput);
 }
 
-void u8_color_multiply() {
-  std::vector<std::uint8_t> source{100, 120, 140, 200};
-  std::vector<std::uint8_t> destination(4, 0);
-
+void alpha_debug_extracts_source_alpha() {
+  const std::vector<std::uint8_t> source{10, 20, 30, 128};
   rtk::core::RenderParams params;
-  params.color_multiplier = {0.5f, 1.0f, 0.25f, 0.5f};
+  params.debug_view = rtk::core::DebugView::Alpha;
 
-  const rtk::core::ImageView src{source.data(), 1, 1, 4, rtk::core::PixelFormat::RgbaU8};
-  const rtk::core::MutableImageView dst{destination.data(), 1, 1, 4, rtk::core::PixelFormat::RgbaU8};
-
-  const auto result = rtk::core::render(src, dst, params);
-  assert(result.status == rtk::core::RenderStatus::Ok);
-  assert(destination[0] == 50);
-  assert(destination[1] == 120);
-  assert(destination[2] == 35);
-  assert(destination[3] == 100);
+  const auto output = render_u8(source, 1, 1, params);
+  assert(output[0] == 128);
+  assert(output[1] == 128);
+  assert(output[2] == 128);
+  assert(output[3] == 255);
 }
 
-void f32_color_multiply() {
-  std::vector<float> source{0.2f, 0.4f, 0.6f, 1.0f};
-  std::vector<float> destination(4, 0.0f);
-
+void directional_offset_moves_mask_by_pixel_vector() {
+  const std::vector<std::uint8_t> source{
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+  };
   rtk::core::RenderParams params;
-  params.color_multiplier = {2.0f, 0.5f, 0.25f, 1.0f};
+  params.debug_view = rtk::core::DebugView::Offset;
+  params.directional_offset_pixels = {1.0f, 0.0f};
 
-  const rtk::core::ImageView src{source.data(), 1, 1, 4 * static_cast<int>(sizeof(float)), rtk::core::PixelFormat::RgbaF32};
-  const rtk::core::MutableImageView dst{destination.data(), 1, 1, 4 * static_cast<int>(sizeof(float)), rtk::core::PixelFormat::RgbaF32};
-
-  const auto result = rtk::core::render(src, dst, params);
-  assert(result.status == rtk::core::RenderStatus::Ok);
-  assert(std::fabs(destination[0] - 0.4f) < 0.001f);
-  assert(std::fabs(destination[1] - 0.2f) < 0.001f);
-  assert(std::fabs(destination[2] - 0.15f) < 0.001f);
-  assert(std::fabs(destination[3] - 1.0f) < 0.001f);
+  const auto output = render_u8(source, 3, 1, params);
+  assert(output[0] == 0);
+  assert(output[4] == 255);
+  assert(output[8] == 0);
 }
 
-void u16_color_multiply() {
-  std::vector<std::uint16_t> source{10000, 30000, 50000, 60000};
-  std::vector<std::uint16_t> destination(4, 0);
-
+void point_scale_uses_bilinear_sampling_around_pivot() {
+  const std::vector<std::uint8_t> source{
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+  };
   rtk::core::RenderParams params;
-  params.color_multiplier = {0.5f, 1.0f, 0.25f, 0.5f};
+  params.light_mode = rtk::core::LightMode::Point;
+  params.debug_view = rtk::core::DebugView::Offset;
+  params.point_source = {0.0f, 0.0f};
+  params.point_scale = 2.0f;
 
-  const rtk::core::ImageView src{
-      source.data(), 1, 1, 4 * static_cast<int>(sizeof(std::uint16_t)), rtk::core::PixelFormat::RgbaU16};
-  const rtk::core::MutableImageView dst{
-      destination.data(), 1, 1, 4 * static_cast<int>(sizeof(std::uint16_t)), rtk::core::PixelFormat::RgbaU16};
+  const auto output = render_u8(source, 3, 1, params);
+  assert(output[0] == 255);
+  assert(output[4] == 128);
+}
 
-  const auto result = rtk::core::render(src, dst, params);
-  assert(result.status == rtk::core::RenderStatus::Ok);
-  assert(destination[0] == 5000);
-  assert(destination[1] == 30000);
-  assert(destination[2] == 12500);
-  assert(destination[3] == 30000);
+void directional_max_blur_propagates_brightest_sample() {
+  const std::vector<std::uint8_t> source{
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+  };
+  rtk::core::RenderParams params;
+  params.debug_view = rtk::core::DebugView::Occlusion;
+  params.enable.offset = false;
+  params.directional_offset_pixels = {1.0f, 0.0f};
+  params.occlusion_distance = 2.0f;
+
+  const auto output = render_u8(source, 4, 1, params);
+  assert(output[0] == 255);
+  assert(output[4] == 255);
+  assert(output[8] == 255);
+  assert(output[12] == 0);
+}
+
+void iterative_box_blur_blurs_mask() {
+  const std::vector<std::uint8_t> source{
+      0, 0, 0, 0,
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+  };
+  rtk::core::RenderParams params;
+  params.debug_view = rtk::core::DebugView::FastBlur;
+  params.enable.offset = false;
+  params.enable.occlusion = false;
+  params.blur_radius = 1.0f;
+  params.blur_iterations = 1;
+
+  const auto output = render_u8(source, 3, 1, params);
+  assert(output[0] == 85);
+  assert(output[4] == 85);
+  assert(output[8] == 85);
+}
+
+void invert_stage_outputs_one_minus_mask() {
+  const std::vector<std::uint8_t> source{0, 0, 0, 64};
+  rtk::core::RenderParams params;
+  params.debug_view = rtk::core::DebugView::Invert;
+  params.enable.offset = false;
+  params.enable.occlusion = false;
+  params.enable.fast_blur = false;
+
+  const auto output = render_u8(source, 1, 1, params);
+  assert(output[0] == 191);
+}
+
+void matte_multiplies_by_original_alpha() {
+  const std::vector<std::uint8_t> source{0, 0, 0, 128};
+  rtk::core::RenderParams params;
+  params.debug_view = rtk::core::DebugView::Matte;
+  params.enable.offset = false;
+  params.enable.occlusion = false;
+  params.enable.fast_blur = false;
+  params.enable.invert = false;
+
+  const auto output = render_u8(source, 1, 1, params);
+  assert(output[0] == 64);
+}
+
+void color_layer_uses_matte_as_alpha() {
+  const std::vector<std::uint8_t> source{0, 0, 0, 255};
+  rtk::core::RenderParams params;
+  params.debug_view = rtk::core::DebugView::ColorLayer;
+  params.enable.offset = false;
+  params.enable.occlusion = false;
+  params.enable.fast_blur = false;
+  params.enable.invert = false;
+  params.solid_color = {1.0f, 0.0f, 0.0f, 1.0f};
+  params.solid_opacity = 0.5f;
+
+  const auto output = render_u8(source, 1, 1, params);
+  assert(output[0] == 255);
+  assert(output[1] == 0);
+  assert(output[2] == 0);
+  assert(output[3] == 128);
+}
+
+void composite_alpha_overs_color_layer_on_source() {
+  const std::vector<std::uint8_t> source{0, 0, 255, 255};
+  rtk::core::RenderParams params;
+  params.enable.offset = false;
+  params.enable.occlusion = false;
+  params.enable.fast_blur = false;
+  params.enable.invert = false;
+  params.solid_color = {1.0f, 0.0f, 0.0f, 1.0f};
+  params.solid_opacity = 0.5f;
+
+  const auto output = render_u8(source, 1, 1, params);
+  assert(output[0] == 128);
+  assert(output[1] == 0);
+  assert(output[2] == 128);
+  assert(output[3] == 255);
+}
+
+void composite_keeps_straight_color_when_source_is_transparent() {
+  const std::vector<std::uint8_t> source{0, 0, 255, 0};
+  rtk::core::RenderParams params;
+  params.enable.offset = false;
+  params.enable.occlusion = false;
+  params.enable.fast_blur = false;
+  params.enable.invert = false;
+  params.enable.alpha = false;
+  params.enable.matte = false;
+  params.solid_color = {1.0f, 0.0f, 0.0f, 1.0f};
+  params.solid_opacity = 0.5f;
+
+  const auto output = render_u8(source, 1, 1, params);
+  assert(output[0] == 255);
+  assert(output[1] == 0);
+  assert(output[2] == 0);
+  assert(output[3] == 128);
+}
+
+void stage_bypass_passes_input_through() {
+  const std::vector<std::uint8_t> source{
+      0, 0, 0, 255,
+      0, 0, 0, 0,
+      0, 0, 0, 0,
+  };
+  rtk::core::RenderParams params;
+  params.debug_view = rtk::core::DebugView::Offset;
+  params.enable.offset = false;
+  params.directional_offset_pixels = {1.0f, 0.0f};
+
+  const auto output = render_u8(source, 3, 1, params);
+  assert(output[0] == 255);
+  assert(output[4] == 0);
 }
 
 }  // namespace
 
 int main() {
   render_rejects_bad_inputs();
-  u8_color_multiply();
-  u16_color_multiply();
-  f32_color_multiply();
+  alpha_debug_extracts_source_alpha();
+  directional_offset_moves_mask_by_pixel_vector();
+  point_scale_uses_bilinear_sampling_around_pivot();
+  directional_max_blur_propagates_brightest_sample();
+  iterative_box_blur_blurs_mask();
+  invert_stage_outputs_one_minus_mask();
+  matte_multiplies_by_original_alpha();
+  color_layer_uses_matte_as_alpha();
+  composite_alpha_overs_color_layer_on_source();
+  composite_keeps_straight_color_when_source_is_transparent();
+  stage_bypass_passes_input_through();
   return 0;
 }

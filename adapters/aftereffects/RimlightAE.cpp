@@ -9,8 +9,8 @@ namespace {
 
 enum ParamId {
   kInput = 0,
-  kMultiplierColor,
-  kAlphaMultiplier,
+  kSolidColor,
+  kSolidOpacity,
   kParamCount
 };
 
@@ -24,14 +24,14 @@ rtk::core::PixelFormat pixel_format_for_world(const PF_EffectWorld& world) {
 rtk::core::RenderParams read_params(PF_ParamDef* params[]) {
   rtk::core::RenderParams result;
 
-  const auto color = params[kMultiplierColor]->u.cd.value;
-  result.color_multiplier = {
+  const auto color = params[kSolidColor]->u.cd.value;
+  result.solid_color = {
       color.red / 255.0f,
       color.green / 255.0f,
       color.blue / 255.0f,
       1.0f,
   };
-  result.color_multiplier.a = static_cast<float>(params[kAlphaMultiplier]->u.fs_d.value) / 65536.0f;
+  result.solid_opacity = static_cast<float>(params[kSolidOpacity]->u.fs_d.value) / 65536.0f;
 
   return result;
 }
@@ -48,19 +48,19 @@ PF_Err params_setup(PF_InData* in_data, PF_OutData* out_data) {
   PF_ParamDef def;
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_COLOR(rtk::core::kColorMultiplierControl.label, 255, 255, 255, kMultiplierColor);
+  PF_ADD_COLOR(rtk::core::kSolidColorControl.label, 255, 209, 92, kSolidColor);
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_FLOAT_SLIDERX(rtk::core::kAlphaMultiplierControl.label,
-                       rtk::core::kAlphaMultiplierControl.display_min,
-                       rtk::core::kAlphaMultiplierControl.display_max,
-                       rtk::core::kAlphaMultiplierControl.display_min,
-                       rtk::core::kAlphaMultiplierControl.display_max,
-                       rtk::core::kAlphaMultiplierControl.default_value,
+  PF_ADD_FLOAT_SLIDERX(rtk::core::kSolidOpacityControl.label,
+                       rtk::core::kSolidOpacityControl.display_min,
+                       rtk::core::kSolidOpacityControl.display_max,
+                       rtk::core::kSolidOpacityControl.display_min,
+                       rtk::core::kSolidOpacityControl.display_max,
+                       rtk::core::kSolidOpacityControl.default_value,
                        PF_Precision_HUNDREDTHS,
                        0,
                        0,
-                       kAlphaMultiplier);
+                       kSolidOpacity);
 
   out_data->num_params = kParamCount;
   return err;

@@ -17,7 +17,7 @@ struct Args {
   std::filesystem::path out = "out/preview.png";
   int width = 320;
   int height = 220;
-  rtk::core::Float4 multiplier = rtk::core::kColorMultiplierControl.default_value;
+  rtk::core::RenderParams params = rtk::core::default_render_params();
 };
 
 std::filesystem::path default_test_image_path() {
@@ -59,6 +59,19 @@ bool read_value(int& i, int argc, char** argv, int& target) {
   return true;
 }
 
+bool parse_debug_view(const std::string& value, rtk::core::DebugView& view) {
+  if (value == "composite") view = rtk::core::DebugView::Composite;
+  else if (value == "alpha") view = rtk::core::DebugView::Alpha;
+  else if (value == "offset") view = rtk::core::DebugView::Offset;
+  else if (value == "occlusion") view = rtk::core::DebugView::Occlusion;
+  else if (value == "fast-blur") view = rtk::core::DebugView::FastBlur;
+  else if (value == "invert") view = rtk::core::DebugView::Invert;
+  else if (value == "matte") view = rtk::core::DebugView::Matte;
+  else if (value == "color-layer") view = rtk::core::DebugView::ColorLayer;
+  else return false;
+  return true;
+}
+
 bool parse_args(int argc, char** argv, Args& args) {
   for (int i = 1; i < argc; ++i) {
     const std::string key = argv[i];
@@ -70,14 +83,17 @@ bool parse_args(int argc, char** argv, Args& args) {
       if (!read_value(i, argc, argv, args.width)) return false;
     } else if (key == "--height") {
       if (!read_value(i, argc, argv, args.height)) return false;
-    } else if (key == "--mul-r") {
-      if (!read_value(i, argc, argv, args.multiplier.r)) return false;
-    } else if (key == "--mul-g") {
-      if (!read_value(i, argc, argv, args.multiplier.g)) return false;
-    } else if (key == "--mul-b") {
-      if (!read_value(i, argc, argv, args.multiplier.b)) return false;
-    } else if (key == "--mul-a") {
-      if (!read_value(i, argc, argv, args.multiplier.a)) return false;
+    } else if (key == "--debug" && i + 1 < argc) {
+      if (!parse_debug_view(argv[++i], args.params.debug_view)) return false;
+    } else if (key == "--mode" && i + 1 < argc) {
+      const std::string mode = argv[++i];
+      if (mode == "directional") args.params.light_mode = rtk::core::LightMode::Directional;
+      else if (mode == "point") args.params.light_mode = rtk::core::LightMode::Point;
+      else return false;
+    } else if (key == "--offset-x") {
+      if (!read_value(i, argc, argv, args.params.directional_offset_pixels.x)) return false;
+    } else if (key == "--offset-y") {
+      if (!read_value(i, argc, argv, args.params.directional_offset_pixels.y)) return false;
     } else {
       return false;
     }
@@ -137,8 +153,8 @@ bool write_png(const std::filesystem::path& path,
 int main(int argc, char** argv) {
   Args args;
   if (!parse_args(argc, argv, args)) {
-    std::cerr << "Usage: rtk_preview_cli [--input image.png] [--out image.png] [--width n] [--height n] "
-                 "[--mul-r value] [--mul-g value] [--mul-b value] [--mul-a value]\n";
+    std::cerr << "Usage: rtk_preview_cli [--input image.png] [--out image.png] [--debug stage] "
+                 "[--mode directional|point] [--offset-x pixels] [--offset-y pixels]\n";
     return 2;
   }
 
@@ -158,14 +174,10 @@ int main(int argc, char** argv) {
   }
 
   std::vector<std::uint8_t> destination(source.size(), 0);
-
-  rtk::core::RenderParams params;
-  params.color_multiplier = args.multiplier;
-
   const rtk::core::ImageView src{source.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
   const rtk::core::MutableImageView dst{destination.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
 
-  const auto result = rtk::core::render(src, dst, params);
+  const auto result = rtk::core::render(src, dst, args.params);
   if (result.status != rtk::core::RenderStatus::Ok) {
     std::cerr << "Render failed: " << rtk::core::to_string(result.status) << " " << result.message << "\n";
     return 1;

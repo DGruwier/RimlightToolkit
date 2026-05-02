@@ -19,8 +19,8 @@ const OfxParameterSuiteV1* g_parameter = nullptr;
 constexpr const char* kPluginIdentifier = "com.dgruwier.rimlighttoolkit";
 constexpr const char* kSourceClip = "Source";
 constexpr const char* kOutputClip = "Output";
-constexpr const char* kMultiplierColor = rtk::core::kColorMultiplierControl.key;
-constexpr const char* kAlphaMultiplier = rtk::core::kAlphaMultiplierControl.key;
+constexpr const char* kSolidColor = rtk::core::kSolidColorControl.key;
+constexpr const char* kSolidOpacity = rtk::core::kSolidOpacityControl.key;
 
 bool fetch_suites() {
   if (!g_host || !g_host->fetchSuite) {
@@ -75,18 +75,18 @@ OfxStatus describe_in_context(OfxImageEffectHandle effect) {
   g_image_effect->getParamSet(effect, &params);
 
   define_double_param(params,
-                      kAlphaMultiplier,
-                      rtk::core::kAlphaMultiplierControl.label,
-                      rtk::core::kAlphaMultiplierControl.default_value,
-                      rtk::core::kAlphaMultiplierControl.display_min,
-                      rtk::core::kAlphaMultiplierControl.display_max);
+                      kSolidOpacity,
+                      rtk::core::kSolidOpacityControl.label,
+                      rtk::core::kSolidOpacityControl.default_value,
+                      rtk::core::kSolidOpacityControl.display_min,
+                      rtk::core::kSolidOpacityControl.display_max);
 
   OfxPropertySetHandle multiplier_color_props = nullptr;
-  g_parameter->paramDefine(params, kOfxParamTypeRGB, kMultiplierColor, &multiplier_color_props);
-  g_property->propSetString(multiplier_color_props, kOfxPropLabel, 0, rtk::core::kColorMultiplierControl.label);
-  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 0, rtk::core::kColorMultiplierControl.default_value.r);
-  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 1, rtk::core::kColorMultiplierControl.default_value.g);
-  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 2, rtk::core::kColorMultiplierControl.default_value.b);
+  g_parameter->paramDefine(params, kOfxParamTypeRGB, kSolidColor, &multiplier_color_props);
+  g_property->propSetString(multiplier_color_props, kOfxPropLabel, 0, rtk::core::kSolidColorControl.label);
+  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 0, rtk::core::kSolidColorControl.default_value.r);
+  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 1, rtk::core::kSolidColorControl.default_value.g);
+  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 2, rtk::core::kSolidColorControl.default_value.b);
 
   return kOfxStatOK;
 }
@@ -112,15 +112,15 @@ rtk::core::RenderParams read_params(OfxImageEffectHandle effect, double time) {
   double g = 0.0;
   double b = 0.0;
 
-  g_parameter->paramGetHandle(params, kAlphaMultiplier, &handle, nullptr);
+  g_parameter->paramGetHandle(params, kSolidOpacity, &handle, nullptr);
   g_parameter->paramGetValueAtTime(handle, time, &value);
-  result.color_multiplier.a = static_cast<float>(value);
+  result.solid_opacity = static_cast<float>(value);
 
-  g_parameter->paramGetHandle(params, kMultiplierColor, &handle, nullptr);
+  g_parameter->paramGetHandle(params, kSolidColor, &handle, nullptr);
   g_parameter->paramGetValueAtTime(handle, time, &r, &g, &b);
-  result.color_multiplier.r = static_cast<float>(r);
-  result.color_multiplier.g = static_cast<float>(g);
-  result.color_multiplier.b = static_cast<float>(b);
+  result.solid_color.r = static_cast<float>(r);
+  result.solid_color.g = static_cast<float>(g);
+  result.solid_color.b = static_cast<float>(b);
   return result;
 }
 

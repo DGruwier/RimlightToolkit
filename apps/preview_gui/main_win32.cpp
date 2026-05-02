@@ -1,5 +1,6 @@
 #define NOMINMAX
 #include <windows.h>
+#include <windowsx.h>
 #include <commctrl.h>
 #include <shellapi.h>
 
@@ -19,15 +20,31 @@
 
 namespace {
 
-constexpr int kPanelWidth = 240;
-constexpr int kPanelPadding = 18;
-constexpr int kLabelHeight = 20;
-constexpr int kSliderHeight = 34;
-constexpr int kSliderScale = 100;
-constexpr int kIdRed = 1001;
-constexpr int kIdGreen = 1002;
-constexpr int kIdBlue = 1003;
-constexpr int kIdAlpha = 1004;
+constexpr int kPanelWidth = 310;
+constexpr int kPanelPadding = 14;
+constexpr int kLabelHeight = 16;
+constexpr int kControlHeight = 24;
+constexpr int kSliderHeight = 24;
+constexpr int kIdMode = 1001;
+constexpr int kIdDebug = 1002;
+constexpr int kIdOffsetX = 1003;
+constexpr int kIdOffsetY = 1004;
+constexpr int kIdPointScale = 1005;
+constexpr int kIdOcclusion = 1006;
+constexpr int kIdBlur = 1007;
+constexpr int kIdIterations = 1008;
+constexpr int kIdOpacity = 1009;
+constexpr int kIdRed = 1010;
+constexpr int kIdGreen = 1011;
+constexpr int kIdBlue = 1012;
+constexpr int kIdEnableAlpha = 1013;
+constexpr int kIdEnableOffset = 1014;
+constexpr int kIdEnableOcclusion = 1015;
+constexpr int kIdEnableBlur = 1016;
+constexpr int kIdEnableInvert = 1017;
+constexpr int kIdEnableMatte = 1018;
+constexpr int kIdEnableColor = 1019;
+constexpr int kIdEnableComposite = 1020;
 
 struct RectF {
   float x = 0.0f;
@@ -45,6 +62,7 @@ struct PreviewState {
   rtk::core::RenderParams params = rtk::core::default_render_params();
   RectF image_rect;
   std::filesystem::path source_path;
+  bool dragging = false;
 };
 
 struct AppOptions {
@@ -61,10 +79,26 @@ struct TimingStats {
 };
 
 struct UiControls {
+  HWND mode = nullptr;
+  HWND debug = nullptr;
+  HWND offset_x = nullptr;
+  HWND offset_y = nullptr;
+  HWND point_scale = nullptr;
+  HWND occlusion = nullptr;
+  HWND blur = nullptr;
+  HWND iterations = nullptr;
+  HWND opacity = nullptr;
   HWND red = nullptr;
   HWND green = nullptr;
   HWND blue = nullptr;
-  HWND alpha = nullptr;
+  HWND enable_alpha = nullptr;
+  HWND enable_offset = nullptr;
+  HWND enable_occlusion = nullptr;
+  HWND enable_blur = nullptr;
+  HWND enable_invert = nullptr;
+  HWND enable_matte = nullptr;
+  HWND enable_color = nullptr;
+  HWND enable_composite = nullptr;
 };
 
 PreviewState g_state;
@@ -103,16 +137,21 @@ int slider_pos(HWND slider) {
   return static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
 }
 
-int slider_value(float value) {
-  return static_cast<int>(std::lround(value * kSliderScale));
+bool checked(HWND button) {
+  return SendMessageW(button, BM_GETCHECK, 0, 0) == BST_CHECKED;
 }
 
-void set_slider(HWND slider, int value, float min_value, float max_value) {
-  SendMessageW(slider,
-               TBM_SETRANGE,
-               TRUE,
-               MAKELPARAM(slider_value(min_value), slider_value(max_value)));
-  SendMessageW(slider, TBM_SETPOS, TRUE, value);
+void set_checked(HWND button, bool value) {
+  SendMessageW(button, BM_SETCHECK, value ? BST_CHECKED : BST_UNCHECKED, 0);
+}
+
+void set_slider(HWND slider, int min_value, int max_value, int value) {
+  SendMessageW(slider, TBM_SETRANGE, TRUE, MAKELPARAM(min_value, max_value));
+  SendMessageW(slider, TBM_SETPOS, TRUE, std::clamp(value, min_value, max_value));
+}
+
+void add_combo_item(HWND combo, const wchar_t* text) {
+  SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
 }
 
 HWND create_label(HWND parent, const wchar_t* text) {
@@ -134,7 +173,7 @@ HWND create_slider(HWND parent, int id) {
   return CreateWindowExW(0,
                          TRACKBAR_CLASSW,
                          L"",
-                         WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS,
+                         WS_CHILD | WS_VISIBLE | TBS_HORZ,
                          0,
                          0,
                          10,
@@ -145,47 +184,141 @@ HWND create_slider(HWND parent, int id) {
                          nullptr);
 }
 
+HWND create_combo(HWND parent, int id) {
+  return CreateWindowExW(0,
+                         WC_COMBOBOXW,
+                         L"",
+                         WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
+                         0,
+                         0,
+                         10,
+                         120,
+                         parent,
+                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                         GetModuleHandleW(nullptr),
+                         nullptr);
+}
+
+HWND create_checkbox(HWND parent, int id, const wchar_t* text) {
+  return CreateWindowExW(0,
+                         L"BUTTON",
+                         text,
+                         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                         0,
+                         0,
+                         10,
+                         kControlHeight,
+                         parent,
+                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                         GetModuleHandleW(nullptr),
+                         nullptr);
+}
+
 void sync_controls_from_params() {
-  if (!g_ui.red) {
+  if (!g_ui.mode) {
     return;
   }
-  set_slider(g_ui.red,
-             slider_value(g_state.params.color_multiplier.r),
-             rtk::core::kColorMultiplierControl.display_min,
-             rtk::core::kColorMultiplierControl.display_max);
-  set_slider(g_ui.green,
-             slider_value(g_state.params.color_multiplier.g),
-             rtk::core::kColorMultiplierControl.display_min,
-             rtk::core::kColorMultiplierControl.display_max);
-  set_slider(g_ui.blue,
-             slider_value(g_state.params.color_multiplier.b),
-             rtk::core::kColorMultiplierControl.display_min,
-             rtk::core::kColorMultiplierControl.display_max);
-  set_slider(g_ui.alpha,
-             slider_value(g_state.params.color_multiplier.a),
-             rtk::core::kAlphaMultiplierControl.display_min,
-             rtk::core::kAlphaMultiplierControl.display_max);
+
+  SendMessageW(g_ui.mode, CB_SETCURSEL, g_state.params.light_mode == rtk::core::LightMode::Directional ? 0 : 1, 0);
+  SendMessageW(g_ui.debug, CB_SETCURSEL, static_cast<int>(g_state.params.debug_view), 0);
+  set_slider(g_ui.offset_x, -200, 200, static_cast<int>(std::lround(g_state.params.directional_offset_pixels.x)));
+  set_slider(g_ui.offset_y, -200, 200, static_cast<int>(std::lround(g_state.params.directional_offset_pixels.y)));
+  set_slider(g_ui.point_scale, 50, 300, static_cast<int>(std::lround(g_state.params.point_scale * 100.0f)));
+  set_slider(g_ui.occlusion, 0, 160, static_cast<int>(std::lround(g_state.params.occlusion_distance)));
+  set_slider(g_ui.blur, 0, 64, static_cast<int>(std::lround(g_state.params.blur_radius)));
+  set_slider(g_ui.iterations, 0, 8, g_state.params.blur_iterations);
+  set_slider(g_ui.opacity, 0, 100, static_cast<int>(std::lround(g_state.params.solid_opacity * 100.0f)));
+  set_slider(g_ui.red, 0, 100, static_cast<int>(std::lround(g_state.params.solid_color.r * 100.0f)));
+  set_slider(g_ui.green, 0, 100, static_cast<int>(std::lround(g_state.params.solid_color.g * 100.0f)));
+  set_slider(g_ui.blue, 0, 100, static_cast<int>(std::lround(g_state.params.solid_color.b * 100.0f)));
+
+  set_checked(g_ui.enable_alpha, g_state.params.enable.alpha);
+  set_checked(g_ui.enable_offset, g_state.params.enable.offset);
+  set_checked(g_ui.enable_occlusion, g_state.params.enable.occlusion);
+  set_checked(g_ui.enable_blur, g_state.params.enable.fast_blur);
+  set_checked(g_ui.enable_invert, g_state.params.enable.invert);
+  set_checked(g_ui.enable_matte, g_state.params.enable.matte);
+  set_checked(g_ui.enable_color, g_state.params.enable.color_layer);
+  set_checked(g_ui.enable_composite, g_state.params.enable.composite);
 }
 
 void apply_controls_to_params() {
-  if (!g_ui.red) {
+  if (!g_ui.mode) {
     return;
   }
-  g_state.params.color_multiplier.r = static_cast<float>(slider_pos(g_ui.red)) / kSliderScale;
-  g_state.params.color_multiplier.g = static_cast<float>(slider_pos(g_ui.green)) / kSliderScale;
-  g_state.params.color_multiplier.b = static_cast<float>(slider_pos(g_ui.blue)) / kSliderScale;
-  g_state.params.color_multiplier.a = static_cast<float>(slider_pos(g_ui.alpha)) / kSliderScale;
+
+  g_state.params.light_mode = SendMessageW(g_ui.mode, CB_GETCURSEL, 0, 0) == 0 ? rtk::core::LightMode::Directional
+                                                                               : rtk::core::LightMode::Point;
+  g_state.params.debug_view = static_cast<rtk::core::DebugView>(
+      std::clamp(static_cast<int>(SendMessageW(g_ui.debug, CB_GETCURSEL, 0, 0)), 0, 7));
+  g_state.params.directional_offset_pixels.x = static_cast<float>(slider_pos(g_ui.offset_x));
+  g_state.params.directional_offset_pixels.y = static_cast<float>(slider_pos(g_ui.offset_y));
+  g_state.params.point_scale = static_cast<float>(slider_pos(g_ui.point_scale)) / 100.0f;
+  g_state.params.occlusion_distance = static_cast<float>(slider_pos(g_ui.occlusion));
+  g_state.params.blur_radius = static_cast<float>(slider_pos(g_ui.blur));
+  g_state.params.blur_iterations = slider_pos(g_ui.iterations);
+  g_state.params.solid_opacity = static_cast<float>(slider_pos(g_ui.opacity)) / 100.0f;
+  g_state.params.solid_color.r = static_cast<float>(slider_pos(g_ui.red)) / 100.0f;
+  g_state.params.solid_color.g = static_cast<float>(slider_pos(g_ui.green)) / 100.0f;
+  g_state.params.solid_color.b = static_cast<float>(slider_pos(g_ui.blue)) / 100.0f;
+
+  g_state.params.enable.alpha = checked(g_ui.enable_alpha);
+  g_state.params.enable.offset = checked(g_ui.enable_offset);
+  g_state.params.enable.occlusion = checked(g_ui.enable_occlusion);
+  g_state.params.enable.fast_blur = checked(g_ui.enable_blur);
+  g_state.params.enable.invert = checked(g_ui.enable_invert);
+  g_state.params.enable.matte = checked(g_ui.enable_matte);
+  g_state.params.enable.color_layer = checked(g_ui.enable_color);
+  g_state.params.enable.composite = checked(g_ui.enable_composite);
 }
 
 void create_controls(HWND hwnd) {
-  create_label(hwnd, L"Red multiplier");
+  create_label(hwnd, L"Mode");
+  g_ui.mode = create_combo(hwnd, kIdMode);
+  add_combo_item(g_ui.mode, L"Directional");
+  add_combo_item(g_ui.mode, L"Point");
+
+  create_label(hwnd, L"Debug view");
+  g_ui.debug = create_combo(hwnd, kIdDebug);
+  add_combo_item(g_ui.debug, L"Composite");
+  add_combo_item(g_ui.debug, L"Alpha");
+  add_combo_item(g_ui.debug, L"Offset");
+  add_combo_item(g_ui.debug, L"Occlusion");
+  add_combo_item(g_ui.debug, L"Fast Blur");
+  add_combo_item(g_ui.debug, L"Invert");
+  add_combo_item(g_ui.debug, L"Matte");
+  add_combo_item(g_ui.debug, L"Color Layer");
+
+  create_label(hwnd, L"Offset X");
+  g_ui.offset_x = create_slider(hwnd, kIdOffsetX);
+  create_label(hwnd, L"Offset Y");
+  g_ui.offset_y = create_slider(hwnd, kIdOffsetY);
+  create_label(hwnd, L"Point scale");
+  g_ui.point_scale = create_slider(hwnd, kIdPointScale);
+  create_label(hwnd, L"Occlusion distance");
+  g_ui.occlusion = create_slider(hwnd, kIdOcclusion);
+  create_label(hwnd, L"Blur size");
+  g_ui.blur = create_slider(hwnd, kIdBlur);
+  create_label(hwnd, L"Blur iterations");
+  g_ui.iterations = create_slider(hwnd, kIdIterations);
+  create_label(hwnd, L"Opacity");
+  g_ui.opacity = create_slider(hwnd, kIdOpacity);
+  create_label(hwnd, L"Color red");
   g_ui.red = create_slider(hwnd, kIdRed);
-  create_label(hwnd, L"Green multiplier");
+  create_label(hwnd, L"Color green");
   g_ui.green = create_slider(hwnd, kIdGreen);
-  create_label(hwnd, L"Blue multiplier");
+  create_label(hwnd, L"Color blue");
   g_ui.blue = create_slider(hwnd, kIdBlue);
-  create_label(hwnd, L"Alpha multiplier");
-  g_ui.alpha = create_slider(hwnd, kIdAlpha);
+
+  g_ui.enable_alpha = create_checkbox(hwnd, kIdEnableAlpha, L"Alpha");
+  g_ui.enable_offset = create_checkbox(hwnd, kIdEnableOffset, L"Offset");
+  g_ui.enable_occlusion = create_checkbox(hwnd, kIdEnableOcclusion, L"Occlusion");
+  g_ui.enable_blur = create_checkbox(hwnd, kIdEnableBlur, L"Fast blur");
+  g_ui.enable_invert = create_checkbox(hwnd, kIdEnableInvert, L"Invert");
+  g_ui.enable_matte = create_checkbox(hwnd, kIdEnableMatte, L"Matte");
+  g_ui.enable_color = create_checkbox(hwnd, kIdEnableColor, L"Color layer");
+  g_ui.enable_composite = create_checkbox(hwnd, kIdEnableComposite, L"Composite");
+
   sync_controls_from_params();
 }
 
@@ -201,13 +334,16 @@ void layout_controls(HWND hwnd) {
   while (child) {
     wchar_t class_name[32] = {};
     GetClassNameW(child, class_name, 32);
+    int height = kControlHeight;
     if (wcscmp(class_name, L"Static") == 0 || wcscmp(class_name, L"STATIC") == 0) {
-      MoveWindow(child, control_x, y, control_w, kLabelHeight, TRUE);
-      y += kLabelHeight;
-    } else {
-      MoveWindow(child, control_x, y, control_w, kSliderHeight, TRUE);
-      y += kSliderHeight + 16;
+      height = kLabelHeight;
+    } else if (wcscmp(class_name, TRACKBAR_CLASSW) == 0) {
+      height = kSliderHeight;
+    } else if (wcscmp(class_name, WC_COMBOBOXW) == 0) {
+      height = 140;
     }
+    MoveWindow(child, control_x, y, control_w, height, TRUE);
+    y += (height == 140 ? kControlHeight : height) + 3;
     child = GetWindow(child, GW_HWNDNEXT);
   }
 }
@@ -272,12 +408,10 @@ double render_preview() {
 void update_title(HWND hwnd) {
   const std::wstring file = g_state.source_path.empty() ? L"Synthetic Source" : g_state.source_path.filename().wstring();
   wchar_t title[512] = {};
-  swprintf_s(title, L"Rimlight Toolkit Preview - %s - RGB %.2f %.2f %.2f Alpha %.2f",
+  swprintf_s(title, L"Rimlight Toolkit Preview - %s - %S %S",
              file.c_str(),
-             g_state.params.color_multiplier.r,
-             g_state.params.color_multiplier.g,
-             g_state.params.color_multiplier.b,
-             g_state.params.color_multiplier.a);
+             rtk::core::to_string(g_state.params.light_mode),
+             rtk::core::to_string(g_state.params.debug_view));
   SetWindowTextW(hwnd, title);
 }
 
@@ -294,9 +428,64 @@ void fit_image_rect(HWND hwnd) {
   g_state.image_rect.y = (client_h - g_state.image_rect.h) * 0.5f;
 }
 
+rtk::core::Float2 client_to_image(float x, float y) {
+  return {
+      (x - g_state.image_rect.x) * static_cast<float>(g_state.width) / std::max(1.0f, g_state.image_rect.w),
+      (y - g_state.image_rect.y) * static_cast<float>(g_state.height) / std::max(1.0f, g_state.image_rect.h),
+  };
+}
+
+void update_drag_params(HWND hwnd, LPARAM lparam) {
+  fit_image_rect(hwnd);
+  const float client_x = static_cast<float>(GET_X_LPARAM(lparam));
+  const float client_y = static_cast<float>(GET_Y_LPARAM(lparam));
+  const auto image = client_to_image(client_x, client_y);
+  if (g_state.params.light_mode == rtk::core::LightMode::Directional) {
+    g_state.params.directional_offset_pixels = {
+        image.x - static_cast<float>(g_state.width) * 0.5f,
+        image.y - static_cast<float>(g_state.height) * 0.5f,
+    };
+  } else {
+    g_state.params.point_source = {
+        image.x / static_cast<float>(std::max(1, g_state.width - 1)),
+        image.y / static_cast<float>(std::max(1, g_state.height - 1)),
+    };
+  }
+  sync_controls_from_params();
+}
+
 void repaint_now(HWND hwnd) {
   InvalidateRect(hwnd, nullptr, FALSE);
   UpdateWindow(hwnd);
+}
+
+void draw_indicator(HDC hdc) {
+  HPEN pen = CreatePen(PS_SOLID, 2, RGB(255, 220, 80));
+  HBRUSH brush = CreateSolidBrush(RGB(255, 220, 80));
+  HGDIOBJ old_pen = SelectObject(hdc, pen);
+  HGDIOBJ old_brush = SelectObject(hdc, brush);
+
+  if (g_state.params.light_mode == rtk::core::LightMode::Directional) {
+    const int cx = static_cast<int>(g_state.image_rect.x + g_state.image_rect.w * 0.5f);
+    const int cy = static_cast<int>(g_state.image_rect.y + g_state.image_rect.h * 0.5f);
+    const int ex = static_cast<int>(cx + g_state.params.directional_offset_pixels.x * g_state.image_rect.w /
+                                             static_cast<float>(std::max(1, g_state.width)));
+    const int ey = static_cast<int>(cy + g_state.params.directional_offset_pixels.y * g_state.image_rect.h /
+                                             static_cast<float>(std::max(1, g_state.height)));
+    Ellipse(hdc, cx - 4, cy - 4, cx + 4, cy + 4);
+    MoveToEx(hdc, cx, cy, nullptr);
+    LineTo(hdc, ex, ey);
+    Ellipse(hdc, ex - 3, ey - 3, ex + 3, ey + 3);
+  } else {
+    const int px = static_cast<int>(g_state.image_rect.x + g_state.params.point_source.x * g_state.image_rect.w);
+    const int py = static_cast<int>(g_state.image_rect.y + g_state.params.point_source.y * g_state.image_rect.h);
+    Ellipse(hdc, px - 5, py - 5, px + 5, py + 5);
+  }
+
+  SelectObject(hdc, old_brush);
+  SelectObject(hdc, old_pen);
+  DeleteObject(brush);
+  DeleteObject(pen);
 }
 
 double draw_preview(HWND hwnd, HDC hdc) {
@@ -343,6 +532,7 @@ double draw_preview(HWND hwnd, HDC hdc) {
                 DIB_RGB_COLORS,
                 SRCCOPY);
 
+  draw_indicator(hdc);
   GdiFlush();
   const auto finished = std::chrono::steady_clock::now();
   return std::chrono::duration<double, std::milli>(finished - started).count();
@@ -410,9 +600,8 @@ void run_benchmark(HWND hwnd) {
   for (int i = 0; i < g_options.benchmark_frames; ++i) {
     const auto frame_started = std::chrono::steady_clock::now();
     const float t = static_cast<float>(i) / static_cast<float>(std::max(1, g_options.benchmark_frames - 1));
-    g_state.params.color_multiplier.r = 0.25f + 1.5f * t;
-    g_state.params.color_multiplier.g = 1.75f - 1.5f * t;
-    g_state.params.color_multiplier.b = 1.0f;
+    g_state.params.directional_offset_pixels.x = -40.0f + 80.0f * t;
+    g_state.params.directional_offset_pixels.y = -20.0f;
 
     stats.render_ms.push_back(render_preview());
 
@@ -451,6 +640,12 @@ AppOptions parse_options() {
   return options;
 }
 
+void update_and_repaint(HWND hwnd) {
+  render_preview();
+  update_title(hwnd);
+  repaint_now(hwnd);
+}
+
 LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
     case WM_CREATE:
@@ -462,18 +657,41 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       HDROP drop = reinterpret_cast<HDROP>(wparam);
       wchar_t path[MAX_PATH] = {};
       if (DragQueryFileW(drop, 0, path, MAX_PATH) > 0 && load_png(path)) {
-        render_preview();
-        update_title(hwnd);
-        repaint_now(hwnd);
+        update_and_repaint(hwnd);
       }
       DragFinish(drop);
       return 0;
     }
+    case WM_COMMAND:
+      apply_controls_to_params();
+      update_and_repaint(hwnd);
+      return 0;
     case WM_HSCROLL:
       apply_controls_to_params();
-      render_preview();
-      update_title(hwnd);
-      repaint_now(hwnd);
+      update_and_repaint(hwnd);
+      return 0;
+    case WM_LBUTTONDOWN: {
+      RECT client{};
+      GetClientRect(hwnd, &client);
+      if (GET_X_LPARAM(lparam) < std::max(0L, client.right - kPanelWidth)) {
+        g_state.dragging = true;
+        SetCapture(hwnd);
+        update_drag_params(hwnd, lparam);
+        update_and_repaint(hwnd);
+      }
+      return 0;
+    }
+    case WM_MOUSEMOVE:
+      if (g_state.dragging && (wparam & MK_LBUTTON)) {
+        update_drag_params(hwnd, lparam);
+        update_and_repaint(hwnd);
+      }
+      return 0;
+    case WM_LBUTTONUP:
+      if (g_state.dragging) {
+        g_state.dragging = false;
+        ReleaseCapture();
+      }
       return 0;
     case WM_KEYDOWN:
       if (wparam == 'S') {
@@ -543,8 +761,8 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
                               WS_OVERLAPPEDWINDOW,
                               CW_USEDEFAULT,
                               CW_USEDEFAULT,
-                              1100,
-                              800,
+                              1200,
+                              860,
                               nullptr,
                               nullptr,
                               instance,

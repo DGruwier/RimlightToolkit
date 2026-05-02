@@ -206,6 +206,9 @@ function Run-Benchmark {
   $exe = Find-PreviewExecutable $true
   $benchmarkOut = Join-Path $Root "out\benchmark.txt"
   $benchArgs = @("--benchmark", "--benchmark-out", $benchmarkOut) + $PreviewArgs
+  if (Test-Path $benchmarkOut) {
+    Remove-Item -LiteralPath $benchmarkOut -Force
+  }
   Write-Step "running benchmark $exe $($benchArgs -join ' ')"
   $process = Start-Process -FilePath $exe -ArgumentList $benchArgs -Wait -PassThru
   if ($process.ExitCode -ne 0) {

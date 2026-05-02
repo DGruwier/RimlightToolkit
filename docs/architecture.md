@@ -15,21 +15,23 @@ The core parameter header also owns the small control schema for the current ren
 
 ## Current Render Model
 
-The current processing stack is intentionally minimal:
+The active renderer is an AE-operation-parity mask stack:
 
-1. Read source RGBA pixels.
-2. Multiply RGB by `RenderParams::color_multiplier.rgb`.
-3. Multiply alpha by `RenderParams::color_multiplier.a * source_opacity`.
-4. Write the result in the destination pixel format.
+1. Extract source alpha.
+2. Offset the mask using directional pixels or point-source scaling.
+3. Run max-blur occlusion along the light direction.
+4. Apply iterative box blur.
+5. Invert the mask.
+6. Matte by original alpha.
+7. Convert the mask into a solid-color layer.
+8. Composite the color layer over the source.
 
-This clean baseline keeps the host-independent core easy to verify before more advanced image-processing logic is reintroduced. Same-format U8, U16, and F32 renders have typed fast paths; mixed-format conversion falls back to the generic path.
+Every named stage can be selected through `DebugView`; single-channel debug stages render as opaque grayscale.
 
 ## Host Adapters
 
-After Effects and OFX adapters are thin translation layers. They define host controls and map host image buffers into `rtk_core` descriptors. Algorithm logic belongs in `rtk_core`, not in host adapters.
-
-The AE scaffold currently advertises only the CPU render path it actually implements. SmartFX, AE 32-bpc world mapping, and GPU selectors should be added as adapter backends that still call through the same core parameter contract. The OpenFX adapter is built in CI against fetched OpenFX headers so scaffold breakage is caught early.
+After Effects and OFX adapters are future-ready scaffolds only during this phase. Algorithm logic belongs in `rtk_core`, not in host adapters. Default CI does not build host adapters while the core stack is being iterated.
 
 ## Preview Harnesses
 
-The CLI preview harness is dependency-light and writes PNG output. The Windows GUI preview supports PNG drag/drop, basic multiplier sliders, saving, and a benchmark mode. Both call the same core renderer. When no source is supplied, both previewers load `assets/test_images/test_case_john_01.png` and fall back to a synthetic gradient only if the asset is unavailable.
+The CLI preview harness is dependency-light and writes PNG output. The Windows GUI preview supports PNG drag/drop, debug-stage selection, stack controls, stage toggles, canvas drag positioning, saving, and a benchmark mode. Both call the same core renderer. When no source is supplied, both previewers load `assets/test_images/test_case_john_01.png` and fall back to a synthetic gradient only if the asset is unavailable.
