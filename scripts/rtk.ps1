@@ -158,9 +158,6 @@ function Find-PreviewExecutable {
 function Run-Preview {
   Build-Project
   $exe = Find-PreviewExecutable
-  if ($PreviewArgs.Count -eq 0) {
-    $PreviewArgs = @("--out", (Join-Path $Root "out/preview.ppm"))
-  }
   Write-Step "running $exe $($PreviewArgs -join ' ')"
   & $exe @PreviewArgs
 }

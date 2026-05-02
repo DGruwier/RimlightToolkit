@@ -78,9 +78,6 @@ run_preview() {
   build_project
   local exe
   exe="$(find_preview_exe)"
-  if [[ ${#PREVIEW_ARGS[@]} -eq 0 ]]; then
-    PREVIEW_ARGS=(--out "$ROOT/out/preview.ppm")
-  fi
   step "running $exe ${PREVIEW_ARGS[*]}"
   "$exe" "${PREVIEW_ARGS[@]}"
 }
