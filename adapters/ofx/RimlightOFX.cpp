@@ -19,12 +19,10 @@ OfxParameterSuiteV1* g_parameter = nullptr;
 constexpr const char* kPluginIdentifier = "com.dgruwier.rimlighttoolkit";
 constexpr const char* kSourceClip = "Source";
 constexpr const char* kOutputClip = "Output";
-constexpr const char* kShadowOffset = "shadowOffset";
-constexpr const char* kShadowBlur = "shadowBlur";
-constexpr const char* kShadowColor = "shadowColor";
-constexpr const char* kRimWidth = "rimWidth";
-constexpr const char* kRimIntensity = "rimIntensity";
-constexpr const char* kRimColor = "rimColor";
+constexpr const char* kTransformOrigin = "transformOrigin";
+constexpr const char* kAlphaScale = "alphaScale";
+constexpr const char* kFillColor = "fillColor";
+constexpr const char* kFillOpacity = "fillOpacity";
 
 bool fetch_suites() {
   if (!g_host || !g_host->fetchSuite) {
@@ -84,28 +82,20 @@ OfxStatus describe_in_context(OfxImageEffectHandle effect) {
   g_image_effect->getParamSet(effect, &params);
 
   OfxPropertySetHandle offset_props = nullptr;
-  g_parameter->paramDefine(params, kOfxParamTypeDouble2D, kShadowOffset, &offset_props);
-  g_property->propSetString(offset_props, kOfxPropLabel, 0, "Shadow Offset");
+  g_parameter->paramDefine(params, kOfxParamTypeDouble2D, kTransformOrigin, &offset_props);
+  g_property->propSetString(offset_props, kOfxPropLabel, 0, "Light Position");
   g_property->propSetDouble(offset_props, kOfxParamPropDefault, 0, 12.0);
   g_property->propSetDouble(offset_props, kOfxParamPropDefault, 1, 12.0);
 
-  define_double_param(params, kShadowBlur, "Shadow Blur", 10.0, 0.0, 128.0);
-  define_double_param(params, kRimWidth, "Rim Width", 2.0, 0.0, 64.0);
-  define_double_param(params, kRimIntensity, "Rim Intensity", 0.35, 0.0, 4.0);
+  define_double_param(params, kAlphaScale, "Alpha Scale", 1.08, 1.0, 4.0);
+  define_double_param(params, kFillOpacity, "Fill Opacity", 0.75, 0.0, 1.0);
 
-  OfxPropertySetHandle shadow_color_props = nullptr;
-  g_parameter->paramDefine(params, kOfxParamTypeRGB, kShadowColor, &shadow_color_props);
-  g_property->propSetString(shadow_color_props, kOfxPropLabel, 0, "Shadow Color");
-  g_property->propSetDouble(shadow_color_props, kOfxParamPropDefault, 0, 0.0);
-  g_property->propSetDouble(shadow_color_props, kOfxParamPropDefault, 1, 0.0);
-  g_property->propSetDouble(shadow_color_props, kOfxParamPropDefault, 2, 0.0);
-
-  OfxPropertySetHandle rim_color_props = nullptr;
-  g_parameter->paramDefine(params, kOfxParamTypeRGB, kRimColor, &rim_color_props);
-  g_property->propSetString(rim_color_props, kOfxPropLabel, 0, "Rim Color");
-  g_property->propSetDouble(rim_color_props, kOfxParamPropDefault, 0, 1.0);
-  g_property->propSetDouble(rim_color_props, kOfxParamPropDefault, 1, 1.0);
-  g_property->propSetDouble(rim_color_props, kOfxParamPropDefault, 2, 1.0);
+  OfxPropertySetHandle fill_color_props = nullptr;
+  g_parameter->paramDefine(params, kOfxParamTypeRGB, kFillColor, &fill_color_props);
+  g_property->propSetString(fill_color_props, kOfxPropLabel, 0, "Fill Color");
+  g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 0, 1.0);
+  g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 1, 1.0);
+  g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 2, 1.0);
 
   return kOfxStatOK;
 }
@@ -133,34 +123,24 @@ rtk::core::RenderParams read_params(OfxImageEffectHandle effect, double time) {
   double g = 0.0;
   double b = 0.0;
 
-  g_parameter->paramGetHandle(params, kShadowOffset, &handle, nullptr);
+  g_parameter->paramGetHandle(params, kTransformOrigin, &handle, nullptr);
   g_parameter->paramGetValueAtTime(handle, time, &x, &y);
-  result.shadow_offset_x = static_cast<float>(x);
-  result.shadow_offset_y = static_cast<float>(y);
+  result.transform_origin_x = static_cast<float>(x);
+  result.transform_origin_y = static_cast<float>(y);
 
-  g_parameter->paramGetHandle(params, kShadowBlur, &handle, nullptr);
+  g_parameter->paramGetHandle(params, kAlphaScale, &handle, nullptr);
   g_parameter->paramGetValueAtTime(handle, time, &value);
-  result.shadow_blur_radius = static_cast<float>(value);
+  result.alpha_scale = static_cast<float>(value);
 
-  g_parameter->paramGetHandle(params, kRimWidth, &handle, nullptr);
+  g_parameter->paramGetHandle(params, kFillOpacity, &handle, nullptr);
   g_parameter->paramGetValueAtTime(handle, time, &value);
-  result.rim_width = static_cast<float>(value);
+  result.fill_opacity = static_cast<float>(value);
 
-  g_parameter->paramGetHandle(params, kRimIntensity, &handle, nullptr);
-  g_parameter->paramGetValueAtTime(handle, time, &value);
-  result.rim_intensity = static_cast<float>(value);
-
-  g_parameter->paramGetHandle(params, kShadowColor, &handle, nullptr);
+  g_parameter->paramGetHandle(params, kFillColor, &handle, nullptr);
   g_parameter->paramGetValueAtTime(handle, time, &r, &g, &b);
-  result.shadow_color.r = static_cast<float>(r);
-  result.shadow_color.g = static_cast<float>(g);
-  result.shadow_color.b = static_cast<float>(b);
-
-  g_parameter->paramGetHandle(params, kRimColor, &handle, nullptr);
-  g_parameter->paramGetValueAtTime(handle, time, &r, &g, &b);
-  result.rim_color.r = static_cast<float>(r);
-  result.rim_color.g = static_cast<float>(g);
-  result.rim_color.b = static_cast<float>(b);
+  result.fill_color.r = static_cast<float>(r);
+  result.fill_color.g = static_cast<float>(g);
+  result.fill_color.b = static_cast<float>(b);
   return result;
 }
 

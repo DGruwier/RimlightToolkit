@@ -30,6 +30,14 @@ Quick path:
 .\scripts\rtk.ps1 run
 ```
 
+Process a PNG:
+
+```powershell
+.\scripts\rtk.ps1 run --input .\path\to\source.png --out out\preview.png
+```
+
+On Windows, `scripts\preview.cmd` can be used as a simple Explorer drop target: drag a PNG onto it and it will build/run the preview harness against that image.
+
 On macOS/Linux:
 
 ```bash
@@ -52,7 +60,7 @@ Generate a synthetic preview frame:
 .\build\apps\preview_cli\rtk_preview_cli.exe
 ```
 
-The preview output is a plain PPM file so it can be inspected in common image tools without pulling a GUI dependency into the initial scaffold.
+The preview output is a PNG file so it can be inspected in common image tools.
 
 ## Optional SDK Builds
 

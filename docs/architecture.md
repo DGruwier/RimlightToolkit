@@ -13,14 +13,15 @@ All host-specific concepts such as `PF_EffectWorld`, `PF_ParamDef`, `OfxImageEff
 
 ## Render Model
 
-The initial CPU path uses straight RGBA float internally:
+The initial CPU path is generic matte transformation over RGBA pixels:
 
-1. Sample source alpha.
-2. Offset alpha to form a shadow mask.
-3. Blur the mask with separable box passes.
-4. Tint the mask and composite behind the source image.
-5. Optionally add a rim contribution around source alpha.
-6. Write the result in the destination pixel format.
+1. Sample the source alpha.
+2. Scale the alpha field around a transform origin controlled by the host or preview canvas.
+3. Invert the transformed alpha.
+4. Matte that inverse alpha with the original alpha.
+5. Use the resulting mask to stencil a user color and opacity.
+6. Alpha-over the fill on top of the original source image.
+7. Write the result in the destination pixel format.
 
 The renderer clips reads/writes to the supplied descriptors and honors row stride, pixel stride, and channel depth.
 

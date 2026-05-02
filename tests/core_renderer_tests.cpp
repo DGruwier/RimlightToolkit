@@ -15,26 +15,26 @@ void render_rejects_bad_inputs() {
   assert(result.status == rtk::core::RenderStatus::InvalidInput);
 }
 
-void shadow_appears_behind_source() {
-  constexpr int width = 8;
-  constexpr int height = 8;
+void scaled_inverse_alpha_creates_inner_matte() {
+  constexpr int width = 5;
+  constexpr int height = 5;
   std::vector<float> source(width * height * 4, 0.0f);
   std::vector<float> destination(width * height * 4, 0.0f);
 
-  const int sx = 2;
-  const int sy = 2;
-  const int source_index = (sy * width + sx) * 4;
-  source[source_index + 0] = 1.0f;
-  source[source_index + 1] = 0.0f;
-  source[source_index + 2] = 0.0f;
-  source[source_index + 3] = 1.0f;
+  const int x = 2;
+  const int y = 2;
+  const int index = (y * width + x) * 4;
+  source[index + 0] = 0.2f;
+  source[index + 1] = 0.3f;
+  source[index + 2] = 0.4f;
+  source[index + 3] = 1.0f;
 
   rtk::core::RenderParams params;
-  params.shadow_offset_x = 2.0f;
-  params.shadow_offset_y = 1.0f;
-  params.shadow_blur_radius = 0.0f;
-  params.shadow_color = {0.0f, 0.0f, 0.0f, 0.5f};
-  params.rim_width = 0.0f;
+  params.transform_origin_x = 0.0f;
+  params.transform_origin_y = 0.0f;
+  params.alpha_scale = 2.0f;
+  params.fill_color = {1.0f, 1.0f, 1.0f, 1.0f};
+  params.fill_opacity = 0.5f;
 
   const rtk::core::ImageView src{
       source.data(), width, height, width * 4 * static_cast<int>(sizeof(float)),
@@ -46,13 +46,13 @@ void shadow_appears_behind_source() {
   const auto result = rtk::core::render(src, dst, params);
   assert(result.status == rtk::core::RenderStatus::Ok);
 
-  const int shadow_index = ((sy + 1) * width + (sx + 2)) * 4;
-  assert(std::fabs(destination[shadow_index + 3] - 0.5f) < 0.001f);
-  assert(std::fabs(destination[source_index + 0] - 1.0f) < 0.001f);
-  assert(std::fabs(destination[source_index + 3] - 1.0f) < 0.001f);
+  assert(destination[index + 0] > source[index + 0]);
+  assert(destination[index + 1] > source[index + 1]);
+  assert(destination[index + 2] > source[index + 2]);
+  assert(std::fabs(destination[index + 3] - 1.0f) < 0.001f);
 }
 
-void u8_buffers_are_supported() {
+void transparent_pixels_do_not_receive_fill() {
   constexpr int width = 2;
   constexpr int height = 1;
   std::vector<std::uint8_t> source(width * height * 4, 0);
@@ -61,10 +61,10 @@ void u8_buffers_are_supported() {
   source[3] = 255;
 
   rtk::core::RenderParams params;
-  params.shadow_blur_radius = 0.0f;
-  params.shadow_offset_x = 1.0f;
-  params.shadow_offset_y = 0.0f;
-  params.rim_width = 0.0f;
+  params.transform_origin_x = 0.0f;
+  params.transform_origin_y = 0.0f;
+  params.alpha_scale = 2.0f;
+  params.fill_opacity = 1.0f;
 
   const rtk::core::ImageView src{source.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
   const rtk::core::MutableImageView dst{destination.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
@@ -72,14 +72,14 @@ void u8_buffers_are_supported() {
   const auto result = rtk::core::render(src, dst, params);
   assert(result.status == rtk::core::RenderStatus::Ok);
   assert(destination[3] == 255);
-  assert(destination[7] > 0);
+  assert(destination[7] == 0);
 }
 
 }  // namespace
 
 int main() {
   render_rejects_bad_inputs();
-  shadow_appears_behind_source();
-  u8_buffers_are_supported();
+  scaled_inverse_alpha_creates_inner_matte();
+  transparent_pixels_do_not_receive_fill();
   return 0;
 }

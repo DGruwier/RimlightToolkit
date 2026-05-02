@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <vector>
 
 namespace rtk::core {
 namespace {
@@ -19,10 +18,6 @@ std::uint8_t to_u8(float value) noexcept {
 
 std::uint16_t to_u16(float value) noexcept {
   return static_cast<std::uint16_t>(std::lround(clamp01(value) * 65535.0f));
-}
-
-int rounded_int(float value) noexcept {
-  return static_cast<int>(std::lround(value));
 }
 
 Float4 load_pixel(const ImageView& image, int x, int y) noexcept {
@@ -93,106 +88,53 @@ Float4 over(Float4 foreground, Float4 background) noexcept {
   };
 }
 
-void blur_horizontal(const std::vector<float>& input,
-                     std::vector<float>& output,
-                     int width,
-                     int height,
-                     int radius) {
-  if (radius <= 0) {
-    output = input;
-    return;
+float alpha_at(const ImageView& image, int x, int y) noexcept {
+  if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
+    return 0.0f;
   }
-
-  const int diameter = radius * 2 + 1;
-  for (int y = 0; y < height; ++y) {
-    float sum = 0.0f;
-    for (int ix = -radius; ix <= radius; ++ix) {
-      const int x = std::clamp(ix, 0, width - 1);
-      sum += input[y * width + x];
-    }
-    for (int x = 0; x < width; ++x) {
-      output[y * width + x] = sum / static_cast<float>(diameter);
-      const int remove_x = std::clamp(x - radius, 0, width - 1);
-      const int add_x = std::clamp(x + radius + 1, 0, width - 1);
-      sum += input[y * width + add_x] - input[y * width + remove_x];
-    }
-  }
+  return clamp01(load_pixel(image, x, y).a);
 }
 
-void blur_vertical(const std::vector<float>& input,
-                   std::vector<float>& output,
-                   int width,
-                   int height,
-                   int radius) {
-  if (radius <= 0) {
-    output = input;
-    return;
-  }
-
-  const int diameter = radius * 2 + 1;
-  for (int x = 0; x < width; ++x) {
-    float sum = 0.0f;
-    for (int iy = -radius; iy <= radius; ++iy) {
-      const int y = std::clamp(iy, 0, height - 1);
-      sum += input[y * width + x];
-    }
-    for (int y = 0; y < height; ++y) {
-      output[y * width + x] = sum / static_cast<float>(diameter);
-      const int remove_y = std::clamp(y - radius, 0, height - 1);
-      const int add_y = std::clamp(y + radius + 1, 0, height - 1);
-      sum += input[add_y * width + x] - input[remove_y * width + x];
-    }
-  }
-}
-
-std::vector<float> make_blurred_offset_alpha(const ImageView& source, const RenderParams& params) {
-  const int width = source.width;
-  const int height = source.height;
-  const int offset_x = rounded_int(params.shadow_offset_x);
-  const int offset_y = rounded_int(params.shadow_offset_y);
-  const int blur_radius = std::max(0, rounded_int(params.shadow_blur_radius));
-
-  std::vector<float> alpha(width * height, 0.0f);
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      const int sx = x - offset_x;
-      const int sy = y - offset_y;
-      if (sx >= 0 && sx < width && sy >= 0 && sy < height) {
-        alpha[y * width + x] = clamp01(load_pixel(source, sx, sy).a);
-      }
-    }
-  }
-
-  if (blur_radius == 0) {
-    return alpha;
-  }
-
-  std::vector<float> temp(width * height, 0.0f);
-  std::vector<float> blurred(width * height, 0.0f);
-  blur_horizontal(alpha, temp, width, height, blur_radius);
-  blur_vertical(temp, blurred, width, height, blur_radius);
-  return blurred;
-}
-
-float rim_mask_at(const ImageView& source, int x, int y, int radius) noexcept {
-  if (radius <= 0) {
+float sample_alpha_bilinear(const ImageView& image, float x, float y) noexcept {
+  if (x < 0.0f || y < 0.0f || x > static_cast<float>(image.width - 1) ||
+      y > static_cast<float>(image.height - 1)) {
     return 0.0f;
   }
 
-  const float center = clamp01(load_pixel(source, x, y).a);
-  float max_neighbor = center;
-  for (int dy = -radius; dy <= radius; ++dy) {
-    for (int dx = -radius; dx <= radius; ++dx) {
-      if (dx * dx + dy * dy > radius * radius) {
-        continue;
-      }
-      const int sx = std::clamp(x + dx, 0, source.width - 1);
-      const int sy = std::clamp(y + dy, 0, source.height - 1);
-      max_neighbor = std::max(max_neighbor, clamp01(load_pixel(source, sx, sy).a));
-    }
-  }
+  const int x0 = static_cast<int>(std::floor(x));
+  const int y0 = static_cast<int>(std::floor(y));
+  const int x1 = std::min(x0 + 1, image.width - 1);
+  const int y1 = std::min(y0 + 1, image.height - 1);
+  const float tx = x - static_cast<float>(x0);
+  const float ty = y - static_cast<float>(y0);
 
-  return clamp01(max_neighbor - center);
+  const float a00 = alpha_at(image, x0, y0);
+  const float a10 = alpha_at(image, x1, y0);
+  const float a01 = alpha_at(image, x0, y1);
+  const float a11 = alpha_at(image, x1, y1);
+  const float ax0 = a00 + (a10 - a00) * tx;
+  const float ax1 = a01 + (a11 - a01) * tx;
+  return ax0 + (ax1 - ax0) * ty;
+}
+
+float scaled_inverse_alpha_mask_at(const ImageView& source,
+                                   const RenderParams& params,
+                                   int x,
+                                   int y) noexcept {
+  const float scale = std::max(params.alpha_scale, 0.0001f);
+  const float origin_x = params.transform_origin_x >= 0.0f
+                             ? params.transform_origin_x
+                             : (static_cast<float>(source.width - 1) * 0.5f);
+  const float origin_y = params.transform_origin_y >= 0.0f
+                             ? params.transform_origin_y
+                             : (static_cast<float>(source.height - 1) * 0.5f);
+
+  const float sx = origin_x + (static_cast<float>(x) - origin_x) / scale;
+  const float sy = origin_y + (static_cast<float>(y) - origin_y) / scale;
+
+  const float original_alpha = alpha_at(source, x, y);
+  const float transformed_inverse_alpha = 1.0f - sample_alpha_bilinear(source, sx, sy);
+  return clamp01(transformed_inverse_alpha * original_alpha);
 }
 
 bool dimensions_match(const ImageView& source, const MutableImageView& destination) noexcept {
@@ -230,35 +172,23 @@ RenderResult render(const ImageView& source,
     return {RenderStatus::InvalidInput, "Source and destination must be valid and have matching dimensions."};
   }
 
-  const std::vector<float> shadow_alpha = make_blurred_offset_alpha(source, params);
-  const int rim_radius = std::max(0, rounded_int(params.rim_width));
+  const float fill_opacity = clamp01(params.fill_opacity) * clamp01(params.fill_color.a);
   const float source_opacity = clamp01(params.source_opacity);
 
   for (int y = 0; y < source.height; ++y) {
     for (int x = 0; x < source.width; ++x) {
-      const float shadow_mask = shadow_alpha[y * source.width + x] * clamp01(params.shadow_color.a);
-      const Float4 shadow = {
-          clamp01(params.shadow_color.r),
-          clamp01(params.shadow_color.g),
-          clamp01(params.shadow_color.b),
-          shadow_mask,
-      };
-
-      const float rim_mask = rim_mask_at(source, x, y, rim_radius) *
-                             std::max(0.0f, params.rim_intensity) *
-                             clamp01(params.rim_color.a);
-      const Float4 rim = {
-          clamp01(params.rim_color.r),
-          clamp01(params.rim_color.g),
-          clamp01(params.rim_color.b),
-          clamp01(rim_mask),
-      };
-
       Float4 src = load_pixel(source, x, y);
       src.a *= source_opacity;
 
-      const Float4 behind = over(rim, shadow);
-      store_pixel(destination, x, y, over(src, behind));
+      const float mask = scaled_inverse_alpha_mask_at(source, params, x, y);
+      const Float4 fill = {
+          clamp01(params.fill_color.r),
+          clamp01(params.fill_color.g),
+          clamp01(params.fill_color.b),
+          clamp01(mask * fill_opacity),
+      };
+
+      store_pixel(destination, x, y, over(fill, src));
     }
   }
 

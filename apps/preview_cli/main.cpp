@@ -1,6 +1,9 @@
 #include "rtk/core/Renderer.hpp"
 
+#include "lodepng.h"
+
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -10,14 +13,15 @@
 namespace {
 
 struct Args {
-  std::filesystem::path out = "out/preview.ppm";
+  std::filesystem::path input;
+  std::filesystem::path out = "out/preview.png";
   int width = 320;
   int height = 220;
-  float blur = 10.0f;
-  float offset_x = 14.0f;
-  float offset_y = 12.0f;
-  float rim_width = 2.0f;
-  float rim_intensity = 0.35f;
+  float scale = 1.08f;
+  float origin_x = -1.0f;
+  float origin_y = -1.0f;
+  float opacity = 0.75f;
+  rtk::core::Float4 color = {1.0f, 1.0f, 1.0f, 1.0f};
 };
 
 bool read_value(int& i, int argc, char** argv, float& target) {
@@ -39,22 +43,30 @@ bool read_value(int& i, int argc, char** argv, int& target) {
 bool parse_args(int argc, char** argv, Args& args) {
   for (int i = 1; i < argc; ++i) {
     const std::string key = argv[i];
-    if (key == "--out" && i + 1 < argc) {
+    if ((key == "--input" || key == "-i") && i + 1 < argc) {
+      args.input = argv[++i];
+    } else if ((key == "--out" || key == "-o") && i + 1 < argc) {
       args.out = argv[++i];
     } else if (key == "--width") {
       if (!read_value(i, argc, argv, args.width)) return false;
     } else if (key == "--height") {
       if (!read_value(i, argc, argv, args.height)) return false;
-    } else if (key == "--blur") {
-      if (!read_value(i, argc, argv, args.blur)) return false;
-    } else if (key == "--offset-x") {
-      if (!read_value(i, argc, argv, args.offset_x)) return false;
-    } else if (key == "--offset-y") {
-      if (!read_value(i, argc, argv, args.offset_y)) return false;
-    } else if (key == "--rim-width") {
-      if (!read_value(i, argc, argv, args.rim_width)) return false;
-    } else if (key == "--rim-intensity") {
-      if (!read_value(i, argc, argv, args.rim_intensity)) return false;
+    } else if (key == "--scale") {
+      if (!read_value(i, argc, argv, args.scale)) return false;
+    } else if (key == "--origin-x") {
+      if (!read_value(i, argc, argv, args.origin_x)) return false;
+    } else if (key == "--origin-y") {
+      if (!read_value(i, argc, argv, args.origin_y)) return false;
+    } else if (key == "--opacity") {
+      if (!read_value(i, argc, argv, args.opacity)) return false;
+    } else if (key == "--color-r") {
+      if (!read_value(i, argc, argv, args.color.r)) return false;
+    } else if (key == "--color-g") {
+      if (!read_value(i, argc, argv, args.color.g)) return false;
+    } else if (key == "--color-b") {
+      if (!read_value(i, argc, argv, args.color.b)) return false;
+    } else if (key == "--color-a") {
+      if (!read_value(i, argc, argv, args.color.a)) return false;
     } else {
       return false;
     }
@@ -62,48 +74,57 @@ bool parse_args(int argc, char** argv, Args& args) {
   return args.width > 0 && args.height > 0;
 }
 
-void fill_source(std::vector<float>& pixels, int width, int height) {
+void fill_source(std::vector<std::uint8_t>& pixels, int width, int height) {
   const float cx = width * 0.45f;
   const float cy = height * 0.45f;
   const float rx = width * 0.24f;
   const float ry = height * 0.30f;
 
+  pixels.assign(static_cast<std::size_t>(width) * height * 4, 0);
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       const float nx = (x - cx) / rx;
       const float ny = (y - cy) / ry;
       const bool inside = nx * nx + ny * ny <= 1.0f;
       const std::size_t index = (static_cast<std::size_t>(y) * width + x) * 4;
-      pixels[index + 0] = 0.16f;
-      pixels[index + 1] = 0.72f;
-      pixels[index + 2] = 0.95f;
-      pixels[index + 3] = inside ? 1.0f : 0.0f;
+      pixels[index + 0] = 41;
+      pixels[index + 1] = 184;
+      pixels[index + 2] = 242;
+      pixels[index + 3] = inside ? 255 : 0;
     }
   }
 }
 
-bool write_ppm(const std::filesystem::path& path, const std::vector<float>& pixels, int width, int height) {
-  std::filesystem::create_directories(path.parent_path());
-  std::ofstream out(path, std::ios::binary);
-  if (!out) {
+bool load_png(const std::filesystem::path& path,
+              std::vector<std::uint8_t>& pixels,
+              int& width,
+              int& height) {
+  unsigned decoded_width = 0;
+  unsigned decoded_height = 0;
+  const unsigned error = lodepng::decode(pixels, decoded_width, decoded_height, path.string(), LCT_RGBA, 8);
+  if (error != 0) {
+    std::cerr << "Could not load PNG " << path << ": " << lodepng_error_text(error) << "\n";
     return false;
   }
+  width = static_cast<int>(decoded_width);
+  height = static_cast<int>(decoded_height);
+  return true;
+}
 
-  out << "P6\n" << width << " " << height << "\n255\n";
-  for (int y = 0; y < height; ++y) {
-    for (int x = 0; x < width; ++x) {
-      const std::size_t index = (static_cast<std::size_t>(y) * width + x) * 4;
-      const auto to_byte = [](float value) {
-        value = std::clamp(value, 0.0f, 1.0f);
-        return static_cast<unsigned char>(value * 255.0f + 0.5f);
-      };
-      const unsigned char rgb[3] = {
-          to_byte(pixels[index + 0] * pixels[index + 3]),
-          to_byte(pixels[index + 1] * pixels[index + 3]),
-          to_byte(pixels[index + 2] * pixels[index + 3]),
-      };
-      out.write(reinterpret_cast<const char*>(rgb), 3);
-    }
+bool write_png(const std::filesystem::path& path,
+               const std::vector<std::uint8_t>& pixels,
+               int width,
+               int height) {
+  const auto parent = path.parent_path();
+  if (!parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+
+  const unsigned error = lodepng::encode(path.string(), pixels, static_cast<unsigned>(width),
+                                         static_cast<unsigned>(height), LCT_RGBA, 8);
+  if (error != 0) {
+    std::cerr << "Could not write PNG " << path << ": " << lodepng_error_text(error) << "\n";
+    return false;
   }
   return true;
 }
@@ -113,29 +134,34 @@ bool write_ppm(const std::filesystem::path& path, const std::vector<float>& pixe
 int main(int argc, char** argv) {
   Args args;
   if (!parse_args(argc, argv, args)) {
-    std::cerr << "Usage: rtk_preview_cli [--out path] [--width n] [--height n] "
-                 "[--blur px] [--offset-x px] [--offset-y px] [--rim-width px] "
-                 "[--rim-intensity value]\n";
+    std::cerr << "Usage: rtk_preview_cli [--input image.png] [--out image.png] [--width n] [--height n] "
+                 "[--scale value] [--origin-x px] [--origin-y px] [--opacity value] "
+                 "[--color-r value] [--color-g value] [--color-b value] [--color-a value]\n";
     return 2;
   }
 
-  std::vector<float> source(static_cast<std::size_t>(args.width) * args.height * 4, 0.0f);
-  std::vector<float> destination(source.size(), 0.0f);
-  fill_source(source, args.width, args.height);
+  std::vector<std::uint8_t> source;
+  int width = args.width;
+  int height = args.height;
+  if (!args.input.empty()) {
+    if (!load_png(args.input, source, width, height)) {
+      return 1;
+    }
+  } else {
+    fill_source(source, width, height);
+  }
+
+  std::vector<std::uint8_t> destination(source.size(), 0);
 
   rtk::core::RenderParams params;
-  params.shadow_blur_radius = args.blur;
-  params.shadow_offset_x = args.offset_x;
-  params.shadow_offset_y = args.offset_y;
-  params.rim_width = args.rim_width;
-  params.rim_intensity = args.rim_intensity;
+  params.alpha_scale = args.scale;
+  params.transform_origin_x = args.origin_x;
+  params.transform_origin_y = args.origin_y;
+  params.fill_opacity = args.opacity;
+  params.fill_color = args.color;
 
-  const rtk::core::ImageView src{
-      source.data(), args.width, args.height, args.width * 4 * static_cast<int>(sizeof(float)),
-      rtk::core::PixelFormat::RgbaF32};
-  const rtk::core::MutableImageView dst{
-      destination.data(), args.width, args.height, args.width * 4 * static_cast<int>(sizeof(float)),
-      rtk::core::PixelFormat::RgbaF32};
+  const rtk::core::ImageView src{source.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
+  const rtk::core::MutableImageView dst{destination.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
 
   const auto result = rtk::core::render(src, dst, params);
   if (result.status != rtk::core::RenderStatus::Ok) {
@@ -143,8 +169,7 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  if (!write_ppm(args.out, destination, args.width, args.height)) {
-    std::cerr << "Could not write " << args.out << "\n";
+  if (!write_png(args.out, destination, width, height)) {
     return 1;
   }
 

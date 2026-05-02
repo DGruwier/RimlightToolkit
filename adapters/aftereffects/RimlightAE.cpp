@@ -9,12 +9,10 @@ namespace {
 
 enum ParamId {
   kInput = 0,
-  kShadowOffset,
-  kShadowBlur,
-  kShadowColor,
-  kRimWidth,
-  kRimIntensity,
-  kRimColor,
+  kTransformOrigin,
+  kAlphaScale,
+  kFillColor,
+  kFillOpacity,
   kParamCount
 };
 
@@ -28,28 +26,18 @@ rtk::core::PixelFormat pixel_format_for_world(const PF_EffectWorld& world) {
 rtk::core::RenderParams read_params(PF_ParamDef* params[]) {
   rtk::core::RenderParams result;
 
-  result.shadow_offset_x = static_cast<float>(params[kShadowOffset]->u.td.x_value) / 65536.0f;
-  result.shadow_offset_y = static_cast<float>(params[kShadowOffset]->u.td.y_value) / 65536.0f;
-  result.shadow_blur_radius = static_cast<float>(params[kShadowBlur]->u.fs_d.value) / 65536.0f;
+  result.transform_origin_x = static_cast<float>(params[kTransformOrigin]->u.td.x_value) / 65536.0f;
+  result.transform_origin_y = static_cast<float>(params[kTransformOrigin]->u.td.y_value) / 65536.0f;
+  result.alpha_scale = static_cast<float>(params[kAlphaScale]->u.fs_d.value) / 65536.0f;
 
-  const auto shadow = params[kShadowColor]->u.cd.value;
-  result.shadow_color = {
-      shadow.red / 255.0f,
-      shadow.green / 255.0f,
-      shadow.blue / 255.0f,
-      0.55f,
-  };
-
-  result.rim_width = static_cast<float>(params[kRimWidth]->u.fs_d.value) / 65536.0f;
-  result.rim_intensity = static_cast<float>(params[kRimIntensity]->u.fs_d.value) / 65536.0f;
-
-  const auto rim = params[kRimColor]->u.cd.value;
-  result.rim_color = {
-      rim.red / 255.0f,
-      rim.green / 255.0f,
-      rim.blue / 255.0f,
+  const auto fill = params[kFillColor]->u.cd.value;
+  result.fill_color = {
+      fill.red / 255.0f,
+      fill.green / 255.0f,
+      fill.blue / 255.0f,
       1.0f,
   };
+  result.fill_opacity = static_cast<float>(params[kFillOpacity]->u.fs_d.value) / 65536.0f;
 
   return result;
 }
@@ -68,22 +56,16 @@ PF_Err params_setup(PF_InData* in_data, PF_OutData* out_data) {
   PF_ParamDef def;
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_POINT("Shadow Offset", 12, 12, false, kShadowOffset);
+  PF_ADD_POINT("Light Position", 160, 110, false, kTransformOrigin);
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_FLOAT_SLIDERX("Shadow Blur", 0, 128, 0, 64, 10, PF_Precision_HUNDREDTHS, 0, 0, kShadowBlur);
+  PF_ADD_FLOAT_SLIDERX("Alpha Scale", 1, 4, 1, 2, 1.08, PF_Precision_HUNDREDTHS, 0, 0, kAlphaScale);
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_COLOR("Shadow Color", 0, 0, 0, kShadowColor);
+  PF_ADD_COLOR("Fill Color", 255, 255, 255, kFillColor);
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_FLOAT_SLIDERX("Rim Width", 0, 64, 0, 32, 2, PF_Precision_HUNDREDTHS, 0, 0, kRimWidth);
-
-  AEFX_CLR_STRUCT(def);
-  PF_ADD_FLOAT_SLIDERX("Rim Intensity", 0, 4, 0, 2, 0.35, PF_Precision_HUNDREDTHS, 0, 0, kRimIntensity);
-
-  AEFX_CLR_STRUCT(def);
-  PF_ADD_COLOR("Rim Color", 255, 255, 255, kRimColor);
+  PF_ADD_FLOAT_SLIDERX("Fill Opacity", 0, 1, 0, 1, 0.75, PF_Precision_HUNDREDTHS, 0, 0, kFillOpacity);
 
   out_data->num_params = kParamCount;
   return err;
