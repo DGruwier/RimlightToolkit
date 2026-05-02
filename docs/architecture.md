@@ -2,59 +2,30 @@
 
 ## Boundary Rule
 
-`rtk_core` must never include After Effects SDK or OpenFX headers. It receives only plain C++ descriptors:
+`rtk_core` must not include After Effects SDK or OpenFX headers. It receives only plain C++ descriptors:
 
 - `ImageView`
 - `MutableImageView`
 - `RenderParams`
 - `RenderResult`
 
-All host-specific concepts such as `PF_EffectWorld`, `PF_ParamDef`, `OfxImageEffectHandle`, clip handles, suite pointers, GPU device handles, bundle layouts, PiPL resources, and installer conventions belong in adapter directories.
+Host-specific concepts such as `PF_EffectWorld`, `PF_ParamDef`, `OfxImageEffectHandle`, clip handles, suite pointers, bundle layouts, PiPL resources, and installer conventions belong in adapter directories.
 
-## Render Model
+## Current Render Model
 
-The initial CPU path is generic matte transformation over RGBA pixels:
+The current processing stack is intentionally minimal:
 
-1. Sample the source alpha.
-2. Transform the alpha field with one of two paths:
-   - Directional: sample alpha at a uniform angle/distance offset.
-   - Point: scale alpha around a transform origin controlled by the host or preview canvas.
-3. Invert the transformed alpha.
-4. Matte that inverse alpha with the original alpha.
-5. Use the resulting mask to stencil a user color and opacity.
-6. Alpha-over the fill on top of the original source image.
-7. Write the result in the destination pixel format.
+1. Read source RGBA pixels.
+2. Multiply RGB by `RenderParams::color_multiplier.rgb`.
+3. Multiply alpha by `RenderParams::color_multiplier.a * source_opacity`.
+4. Write the result in the destination pixel format.
 
-The renderer clips reads/writes to the supplied descriptors and honors row stride, pixel stride, and channel depth.
+This clean baseline keeps the host-independent core easy to verify before more advanced image-processing logic is reintroduced.
 
 ## Host Adapters
 
-### After Effects
+After Effects and OFX adapters are thin translation layers. They define host controls and map host image buffers into `rtk_core` descriptors. Algorithm logic belongs in `rtk_core`, not in host adapters.
 
-The AE adapter owns:
+## Preview Harnesses
 
-- Effect Controls parameter definition.
-- PiPL/resource metadata.
-- 8/16/32-bpc `PF_EffectWorld` mapping.
-- SmartFX pre-render/render expansion for blur and offset.
-- GPU selector plumbing once backend kernels exist.
-- Commercial packaging concerns such as plug-in naming, versioning, and install paths.
-
-The AE adapter calls the core renderer with normalized descriptors. It should not own algorithm state beyond parameter conversion and host lifecycle bookkeeping.
-
-### OpenFX
-
-The OFX adapter owns:
-
-- OFX image-effect description actions.
-- Source/output clip definition.
-- Parameter definition/fetching.
-- Render window mapping.
-- Host capability negotiation.
-- Optional OpenCL/CUDA/Metal dispatch once backend kernels exist.
-
-The OFX adapter should be portable across hosts, while allowing host quirks to be isolated in adapter helpers.
-
-## Preview/Test Harness
-
-The CLI preview harness is deliberately dependency-light. It provides repeatable output for quick visual checks and CI. A later GUI harness can wrap the same API with slider controls without touching AE or OFX code.
+The CLI preview harness is dependency-light and writes PNG output. The Windows GUI preview supports PNG drag/drop, basic multiplier sliders, saving, and a benchmark mode. Both call the same core renderer.

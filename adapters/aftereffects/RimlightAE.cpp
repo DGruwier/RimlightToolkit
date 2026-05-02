@@ -9,10 +9,8 @@ namespace {
 
 enum ParamId {
   kInput = 0,
-  kTransformOrigin,
-  kAlphaScale,
-  kFillColor,
-  kFillOpacity,
+  kMultiplierColor,
+  kAlphaMultiplier,
   kParamCount
 };
 
@@ -25,20 +23,15 @@ rtk::core::PixelFormat pixel_format_for_world(const PF_EffectWorld& world) {
 
 rtk::core::RenderParams read_params(PF_ParamDef* params[]) {
   rtk::core::RenderParams result;
-  result.mode = rtk::core::LightMode::Point;
 
-  result.transform_origin_x = static_cast<float>(params[kTransformOrigin]->u.td.x_value) / 65536.0f;
-  result.transform_origin_y = static_cast<float>(params[kTransformOrigin]->u.td.y_value) / 65536.0f;
-  result.alpha_scale = static_cast<float>(params[kAlphaScale]->u.fs_d.value) / 65536.0f;
-
-  const auto fill = params[kFillColor]->u.cd.value;
-  result.fill_color = {
-      fill.red / 255.0f,
-      fill.green / 255.0f,
-      fill.blue / 255.0f,
+  const auto color = params[kMultiplierColor]->u.cd.value;
+  result.color_multiplier = {
+      color.red / 255.0f,
+      color.green / 255.0f,
+      color.blue / 255.0f,
       1.0f,
   };
-  result.fill_opacity = static_cast<float>(params[kFillOpacity]->u.fs_d.value) / 65536.0f;
+  result.color_multiplier.a = static_cast<float>(params[kAlphaMultiplier]->u.fs_d.value) / 65536.0f;
 
   return result;
 }
@@ -57,16 +50,10 @@ PF_Err params_setup(PF_InData* in_data, PF_OutData* out_data) {
   PF_ParamDef def;
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_POINT("Light Position", 160, 110, false, kTransformOrigin);
+  PF_ADD_COLOR("Color Multiplier", 255, 255, 255, kMultiplierColor);
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_FLOAT_SLIDERX("Alpha Scale", 1, 4, 1, 2, 1.08, PF_Precision_HUNDREDTHS, 0, 0, kAlphaScale);
-
-  AEFX_CLR_STRUCT(def);
-  PF_ADD_COLOR("Fill Color", 255, 255, 255, kFillColor);
-
-  AEFX_CLR_STRUCT(def);
-  PF_ADD_FLOAT_SLIDERX("Fill Opacity", 0, 1, 0, 1, 0.75, PF_Precision_HUNDREDTHS, 0, 0, kFillOpacity);
+  PF_ADD_FLOAT_SLIDERX("Alpha Multiplier", 0, 1, 0, 1, 1, PF_Precision_HUNDREDTHS, 0, 0, kAlphaMultiplier);
 
   out_data->num_params = kParamCount;
   return err;

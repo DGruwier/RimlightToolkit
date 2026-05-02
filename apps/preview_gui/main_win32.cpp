@@ -1,6 +1,5 @@
 #define NOMINMAX
 #include <windows.h>
-#include <windowsx.h>
 #include <commctrl.h>
 #include <shellapi.h>
 
@@ -19,21 +18,14 @@
 
 namespace {
 
-constexpr int kPanelWidth = 260;
+constexpr int kPanelWidth = 240;
 constexpr int kPanelPadding = 18;
-constexpr int kSliderHeight = 34;
 constexpr int kLabelHeight = 20;
-constexpr int kIdScale = 1001;
-constexpr int kIdOpacity = 1002;
-constexpr int kIdRed = 1003;
-constexpr int kIdGreen = 1004;
-constexpr int kIdBlue = 1005;
-constexpr int kIdPointMode = 1006;
-constexpr int kIdAngle = 1007;
-constexpr int kIdDistance = 1008;
-constexpr int kIdBlur = 1009;
-constexpr int kIdShadowDistance = 1010;
-constexpr int kIdOutputView = 1011;
+constexpr int kSliderHeight = 34;
+constexpr int kIdRed = 1001;
+constexpr int kIdGreen = 1002;
+constexpr int kIdBlue = 1003;
+constexpr int kIdAlpha = 1004;
 
 struct RectF {
   float x = 0.0f;
@@ -50,7 +42,6 @@ struct PreviewState {
   int height = 220;
   rtk::core::RenderParams params;
   RectF image_rect;
-  bool dragging = false;
   std::filesystem::path source_path;
 };
 
@@ -68,41 +59,26 @@ struct TimingStats {
 };
 
 struct UiControls {
-  HWND point_mode = nullptr;
-  HWND output_view = nullptr;
-  HWND angle = nullptr;
-  HWND distance = nullptr;
-  HWND blur = nullptr;
-  HWND shadow_distance = nullptr;
-  HWND scale = nullptr;
-  HWND opacity = nullptr;
   HWND red = nullptr;
   HWND green = nullptr;
   HWND blue = nullptr;
+  HWND alpha = nullptr;
 };
 
 PreviewState g_state;
 AppOptions g_options;
 UiControls g_ui;
 
-std::string narrow(const std::wstring& value) {
-  if (value.empty()) {
-    return {};
-  }
-  const int size = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()),
-                                       nullptr, 0, nullptr, nullptr);
-  std::string result(static_cast<std::size_t>(size), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, value.c_str(), static_cast<int>(value.size()), result.data(), size,
-                      nullptr, nullptr);
-  return result;
+std::uint8_t to_byte(float value) {
+  return static_cast<std::uint8_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f);
 }
 
 int slider_pos(HWND slider) {
   return static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
 }
 
-void set_slider(HWND slider, int min_value, int max_value, int value) {
-  SendMessageW(slider, TBM_SETRANGE, TRUE, MAKELPARAM(min_value, max_value));
+void set_slider(HWND slider, int value) {
+  SendMessageW(slider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 200));
   SendMessageW(slider, TBM_SETPOS, TRUE, value);
 }
 
@@ -136,99 +112,35 @@ HWND create_slider(HWND parent, int id) {
                          nullptr);
 }
 
-HWND create_checkbox(HWND parent, int id, const wchar_t* text) {
-  return CreateWindowExW(0,
-                         L"BUTTON",
-                         text,
-                         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-                         0,
-                         0,
-                         10,
-                         kSliderHeight,
-                         parent,
-                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-                         GetModuleHandleW(nullptr),
-                         nullptr);
-}
-
-HWND create_combo(HWND parent, int id) {
-  return CreateWindowExW(0,
-                         WC_COMBOBOXW,
-                         L"",
-                         WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST,
-                         0,
-                         0,
-                         10,
-                         120,
-                         parent,
-                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
-                         GetModuleHandleW(nullptr),
-                         nullptr);
-}
-
 void sync_controls_from_params() {
-  if (!g_ui.scale) {
+  if (!g_ui.red) {
     return;
   }
-  SendMessageW(g_ui.point_mode, BM_SETCHECK, g_state.params.mode == rtk::core::LightMode::Point ? BST_CHECKED : BST_UNCHECKED, 0);
-  SendMessageW(g_ui.output_view, CB_SETCURSEL, static_cast<WPARAM>(g_state.params.output_view), 0);
-  set_slider(g_ui.angle, 0, 360, static_cast<int>(std::lround(g_state.params.direction_angle_degrees)));
-  set_slider(g_ui.distance, 0, 256, static_cast<int>(std::lround(g_state.params.direction_distance)));
-  set_slider(g_ui.blur, 0, 32, static_cast<int>(std::lround(g_state.params.mask_blur_radius)));
-  set_slider(g_ui.shadow_distance, 0, 64, static_cast<int>(std::lround(g_state.params.shadow_distance)));
-  set_slider(g_ui.scale, 50, 400, static_cast<int>(std::lround(g_state.params.alpha_scale * 100.0f)));
-  set_slider(g_ui.opacity, 0, 100, static_cast<int>(std::lround(g_state.params.fill_opacity * 100.0f)));
-  set_slider(g_ui.red, 0, 255, static_cast<int>(std::lround(std::clamp(g_state.params.fill_color.r, 0.0f, 1.0f) * 255.0f)));
-  set_slider(g_ui.green, 0, 255, static_cast<int>(std::lround(std::clamp(g_state.params.fill_color.g, 0.0f, 1.0f) * 255.0f)));
-  set_slider(g_ui.blue, 0, 255, static_cast<int>(std::lround(std::clamp(g_state.params.fill_color.b, 0.0f, 1.0f) * 255.0f)));
+  set_slider(g_ui.red, static_cast<int>(std::lround(g_state.params.color_multiplier.r * 100.0f)));
+  set_slider(g_ui.green, static_cast<int>(std::lround(g_state.params.color_multiplier.g * 100.0f)));
+  set_slider(g_ui.blue, static_cast<int>(std::lround(g_state.params.color_multiplier.b * 100.0f)));
+  set_slider(g_ui.alpha, static_cast<int>(std::lround(g_state.params.color_multiplier.a * 100.0f)));
 }
 
 void apply_controls_to_params() {
-  if (!g_ui.scale) {
+  if (!g_ui.red) {
     return;
   }
-  g_state.params.mode = SendMessageW(g_ui.point_mode, BM_GETCHECK, 0, 0) == BST_CHECKED
-                            ? rtk::core::LightMode::Point
-                            : rtk::core::LightMode::Directional;
-  const auto view_index = static_cast<int>(SendMessageW(g_ui.output_view, CB_GETCURSEL, 0, 0));
-  g_state.params.output_view = static_cast<rtk::core::OutputView>(std::max(0, view_index));
-  g_state.params.direction_angle_degrees = static_cast<float>(slider_pos(g_ui.angle));
-  g_state.params.direction_distance = static_cast<float>(slider_pos(g_ui.distance));
-  g_state.params.mask_blur_radius = static_cast<float>(slider_pos(g_ui.blur));
-  g_state.params.shadow_distance = static_cast<float>(slider_pos(g_ui.shadow_distance));
-  g_state.params.alpha_scale = static_cast<float>(slider_pos(g_ui.scale)) / 100.0f;
-  g_state.params.fill_opacity = static_cast<float>(slider_pos(g_ui.opacity)) / 100.0f;
-  g_state.params.fill_color.r = static_cast<float>(slider_pos(g_ui.red)) / 255.0f;
-  g_state.params.fill_color.g = static_cast<float>(slider_pos(g_ui.green)) / 255.0f;
-  g_state.params.fill_color.b = static_cast<float>(slider_pos(g_ui.blue)) / 255.0f;
+  g_state.params.color_multiplier.r = static_cast<float>(slider_pos(g_ui.red)) / 100.0f;
+  g_state.params.color_multiplier.g = static_cast<float>(slider_pos(g_ui.green)) / 100.0f;
+  g_state.params.color_multiplier.b = static_cast<float>(slider_pos(g_ui.blue)) / 100.0f;
+  g_state.params.color_multiplier.a = static_cast<float>(slider_pos(g_ui.alpha)) / 100.0f;
 }
 
 void create_controls(HWND hwnd) {
-  g_ui.point_mode = create_checkbox(hwnd, kIdPointMode, L"Point source");
-  create_label(hwnd, L"View");
-  g_ui.output_view = create_combo(hwnd, kIdOutputView);
-  SendMessageW(g_ui.output_view, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Final"));
-  SendMessageW(g_ui.output_view, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Base mask"));
-  SendMessageW(g_ui.output_view, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Shadow mask"));
-  SendMessageW(g_ui.output_view, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Blurred mask"));
-  create_label(hwnd, L"Direction angle");
-  g_ui.angle = create_slider(hwnd, kIdAngle);
-  create_label(hwnd, L"Direction distance");
-  g_ui.distance = create_slider(hwnd, kIdDistance);
-  create_label(hwnd, L"Blur");
-  g_ui.blur = create_slider(hwnd, kIdBlur);
-  create_label(hwnd, L"Shadow distance");
-  g_ui.shadow_distance = create_slider(hwnd, kIdShadowDistance);
-  create_label(hwnd, L"Scale");
-  g_ui.scale = create_slider(hwnd, kIdScale);
-  create_label(hwnd, L"Opacity");
-  g_ui.opacity = create_slider(hwnd, kIdOpacity);
-  create_label(hwnd, L"Red");
+  create_label(hwnd, L"Red multiplier");
   g_ui.red = create_slider(hwnd, kIdRed);
-  create_label(hwnd, L"Green");
+  create_label(hwnd, L"Green multiplier");
   g_ui.green = create_slider(hwnd, kIdGreen);
-  create_label(hwnd, L"Blue");
+  create_label(hwnd, L"Blue multiplier");
   g_ui.blue = create_slider(hwnd, kIdBlue);
+  create_label(hwnd, L"Alpha multiplier");
+  g_ui.alpha = create_slider(hwnd, kIdAlpha);
   sync_controls_from_params();
 }
 
@@ -247,37 +159,23 @@ void layout_controls(HWND hwnd) {
     if (wcscmp(class_name, L"Static") == 0 || wcscmp(class_name, L"STATIC") == 0) {
       MoveWindow(child, control_x, y, control_w, kLabelHeight, TRUE);
       y += kLabelHeight;
-    } else if (wcscmp(class_name, L"Button") == 0 || wcscmp(class_name, L"BUTTON") == 0) {
-      MoveWindow(child, control_x, y, control_w, kSliderHeight, TRUE);
-      y += kSliderHeight + 10;
-    } else if (wcscmp(class_name, L"ComboBox") == 0 || wcscmp(class_name, L"COMBOBOX") == 0) {
-      MoveWindow(child, control_x, y, control_w, 120, TRUE);
-      y += 34;
     } else {
       MoveWindow(child, control_x, y, control_w, kSliderHeight, TRUE);
-      y += kSliderHeight + 14;
+      y += kSliderHeight + 16;
     }
     child = GetWindow(child, GW_HWNDNEXT);
   }
 }
 
 void fill_source() {
-  const float cx = g_state.width * 0.45f;
-  const float cy = g_state.height * 0.45f;
-  const float rx = g_state.width * 0.24f;
-  const float ry = g_state.height * 0.30f;
-
   g_state.source.assign(static_cast<std::size_t>(g_state.width) * g_state.height * 4, 0);
   for (int y = 0; y < g_state.height; ++y) {
     for (int x = 0; x < g_state.width; ++x) {
-      const float nx = (x - cx) / rx;
-      const float ny = (y - cy) / ry;
-      const bool inside = nx * nx + ny * ny <= 1.0f;
       const std::size_t index = (static_cast<std::size_t>(y) * g_state.width + x) * 4;
-      g_state.source[index + 0] = 41;
-      g_state.source[index + 1] = 184;
-      g_state.source[index + 2] = 242;
-      g_state.source[index + 3] = inside ? 255 : 0;
+      g_state.source[index + 0] = static_cast<std::uint8_t>((x * 255) / std::max(1, g_state.width - 1));
+      g_state.source[index + 1] = static_cast<std::uint8_t>((y * 255) / std::max(1, g_state.height - 1));
+      g_state.source[index + 2] = 180;
+      g_state.source[index + 3] = 255;
     }
   }
 }
@@ -297,8 +195,6 @@ bool load_png(const std::filesystem::path& path) {
   g_state.width = static_cast<int>(width);
   g_state.height = static_cast<int>(height);
   g_state.source_path = path;
-  g_state.params.transform_origin_x = static_cast<float>(g_state.width - 1) * 0.5f;
-  g_state.params.transform_origin_y = static_cast<float>(g_state.height - 1) * 0.5f;
   return true;
 }
 
@@ -321,9 +217,9 @@ double render_preview() {
       const float r = (g_state.rendered[index + 0] / 255.0f) * a + bg * (1.0f - a);
       const float g = (g_state.rendered[index + 1] / 255.0f) * a + bg * (1.0f - a);
       const float b = (g_state.rendered[index + 2] / 255.0f) * a + bg * (1.0f - a);
-      g_state.display_bgra[index + 0] = static_cast<std::uint8_t>(std::clamp(b, 0.0f, 1.0f) * 255.0f);
-      g_state.display_bgra[index + 1] = static_cast<std::uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
-      g_state.display_bgra[index + 2] = static_cast<std::uint8_t>(std::clamp(r, 0.0f, 1.0f) * 255.0f);
+      g_state.display_bgra[index + 0] = to_byte(b);
+      g_state.display_bgra[index + 1] = to_byte(g);
+      g_state.display_bgra[index + 2] = to_byte(r);
       g_state.display_bgra[index + 3] = 255;
     }
   }
@@ -333,11 +229,13 @@ double render_preview() {
 
 void update_title(HWND hwnd) {
   const std::wstring file = g_state.source_path.empty() ? L"Synthetic Source" : g_state.source_path.filename().wstring();
-  const wchar_t* mode = g_state.params.mode == rtk::core::LightMode::Directional ? L"Directional" : L"Point";
   wchar_t title[512] = {};
-  swprintf_s(title, L"Rimlight Toolkit Preview - %s - %s - angle %.0f distance %.0f scale %.2f opacity %.2f",
-             file.c_str(), mode, g_state.params.direction_angle_degrees, g_state.params.direction_distance,
-             g_state.params.alpha_scale, g_state.params.fill_opacity);
+  swprintf_s(title, L"Rimlight Toolkit Preview - %s - RGB %.2f %.2f %.2f Alpha %.2f",
+             file.c_str(),
+             g_state.params.color_multiplier.r,
+             g_state.params.color_multiplier.g,
+             g_state.params.color_multiplier.b,
+             g_state.params.color_multiplier.a);
   SetWindowTextW(hwnd, title);
 }
 
@@ -354,45 +252,9 @@ void fit_image_rect(HWND hwnd) {
   g_state.image_rect.y = (client_h - g_state.image_rect.h) * 0.5f;
 }
 
-bool client_to_image(int client_x, int client_y, float& image_x, float& image_y) {
-  if (client_x < g_state.image_rect.x || client_y < g_state.image_rect.y ||
-      client_x > g_state.image_rect.x + g_state.image_rect.w ||
-      client_y > g_state.image_rect.y + g_state.image_rect.h) {
-    return false;
-  }
-  image_x = (static_cast<float>(client_x) - g_state.image_rect.x) *
-            static_cast<float>(g_state.width) / g_state.image_rect.w;
-  image_y = (static_cast<float>(client_y) - g_state.image_rect.y) *
-            static_cast<float>(g_state.height) / g_state.image_rect.h;
-  return true;
-}
-
 void repaint_now(HWND hwnd) {
   InvalidateRect(hwnd, nullptr, FALSE);
   UpdateWindow(hwnd);
-}
-
-void set_origin_from_mouse(HWND hwnd, LPARAM lparam) {
-  float image_x = 0.0f;
-  float image_y = 0.0f;
-  if (!client_to_image(GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam), image_x, image_y)) {
-    return;
-  }
-  if (g_state.params.mode == rtk::core::LightMode::Directional) {
-    const float center_x = static_cast<float>(g_state.width - 1) * 0.5f;
-    const float center_y = static_cast<float>(g_state.height - 1) * 0.5f;
-    float degrees = std::atan2(image_y - center_y, image_x - center_x) * (180.0f / 3.14159265358979323846f);
-    if (degrees < 0.0f) {
-      degrees += 360.0f;
-    }
-    g_state.params.direction_angle_degrees = degrees;
-    sync_controls_from_params();
-  } else {
-    g_state.params.transform_origin_x = image_x;
-    g_state.params.transform_origin_y = image_y;
-  }
-  render_preview();
-  repaint_now(hwnd);
 }
 
 double draw_preview(HWND hwnd, HDC hdc) {
@@ -400,13 +262,16 @@ double draw_preview(HWND hwnd, HDC hdc) {
   fit_image_rect(hwnd);
   RECT client{};
   GetClientRect(hwnd, &client);
+
   HBRUSH background = CreateSolidBrush(RGB(24, 24, 24));
   FillRect(hdc, &client, background);
   DeleteObject(background);
+
   RECT panel{std::max(0L, client.right - kPanelWidth), client.top, client.right, client.bottom};
   HBRUSH panel_brush = CreateSolidBrush(RGB(34, 34, 34));
   FillRect(hdc, &panel, panel_brush);
   DeleteObject(panel_brush);
+
   HPEN separator = CreatePen(PS_SOLID, 1, RGB(58, 58, 58));
   HGDIOBJ old_separator = SelectObject(hdc, separator);
   MoveToEx(hdc, panel.left, panel.top, nullptr);
@@ -436,37 +301,6 @@ double draw_preview(HWND hwnd, HDC hdc) {
                 DIB_RGB_COLORS,
                 SRCCOPY);
 
-  HPEN pen = CreatePen(PS_SOLID, 1, RGB(255, 210, 64));
-  HGDIOBJ old_pen = SelectObject(hdc, pen);
-  if (g_state.params.mode == rtk::core::LightMode::Directional) {
-    const float radians = g_state.params.direction_angle_degrees * (3.14159265358979323846f / 180.0f);
-    const int cx = static_cast<int>(g_state.image_rect.x + g_state.image_rect.w * 0.5f);
-    const int cy = static_cast<int>(g_state.image_rect.y + g_state.image_rect.h * 0.5f);
-    const int length = 48;
-    const int x2 = cx + static_cast<int>(std::cos(radians) * length);
-    const int y2 = cy + static_cast<int>(std::sin(radians) * length);
-    MoveToEx(hdc, cx, cy, nullptr);
-    LineTo(hdc, x2, y2);
-    Ellipse(hdc, x2 - 3, y2 - 3, x2 + 4, y2 + 4);
-    if (g_state.dragging) {
-      HBRUSH dot = CreateSolidBrush(RGB(255, 210, 64));
-      HGDIOBJ old_brush = SelectObject(hdc, dot);
-      Ellipse(hdc, cx - 5, cy - 5, cx + 6, cy + 6);
-      SelectObject(hdc, old_brush);
-      DeleteObject(dot);
-    }
-  } else {
-    const int origin_x = static_cast<int>(g_state.image_rect.x +
-        (g_state.params.transform_origin_x / static_cast<float>(g_state.width)) * g_state.image_rect.w);
-    const int origin_y = static_cast<int>(g_state.image_rect.y +
-        (g_state.params.transform_origin_y / static_cast<float>(g_state.height)) * g_state.image_rect.h);
-    MoveToEx(hdc, origin_x - 8, origin_y, nullptr);
-    LineTo(hdc, origin_x + 9, origin_y);
-    MoveToEx(hdc, origin_x, origin_y - 8, nullptr);
-    LineTo(hdc, origin_x, origin_y + 9);
-  }
-  SelectObject(hdc, old_pen);
-  DeleteObject(pen);
   GdiFlush();
   const auto finished = std::chrono::steady_clock::now();
   return std::chrono::duration<double, std::milli>(finished - started).count();
@@ -482,105 +316,6 @@ void save_rendered(HWND hwnd) {
     MessageBoxW(hwnd, L"Could not save out/preview-gui.png", L"Rimlight Toolkit", MB_ICONERROR);
   } else {
     MessageBoxW(hwnd, L"Saved out/preview-gui.png", L"Rimlight Toolkit", MB_OK);
-  }
-}
-
-LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
-  switch (message) {
-    case WM_CREATE:
-      DragAcceptFiles(hwnd, TRUE);
-      create_controls(hwnd);
-      layout_controls(hwnd);
-      return 0;
-    case WM_DROPFILES: {
-      HDROP drop = reinterpret_cast<HDROP>(wparam);
-      wchar_t path[MAX_PATH] = {};
-      if (DragQueryFileW(drop, 0, path, MAX_PATH) > 0 && load_png(path)) {
-        render_preview();
-        update_title(hwnd);
-        repaint_now(hwnd);
-      }
-      DragFinish(drop);
-      return 0;
-    }
-    case WM_LBUTTONDOWN:
-      g_state.dragging = true;
-      SetCapture(hwnd);
-      set_origin_from_mouse(hwnd, lparam);
-      return 0;
-    case WM_MOUSEMOVE:
-      if (g_state.dragging) {
-        set_origin_from_mouse(hwnd, lparam);
-      }
-      return 0;
-    case WM_LBUTTONUP:
-      g_state.dragging = false;
-      ReleaseCapture();
-      return 0;
-    case WM_KEYDOWN:
-      if (wparam == VK_OEM_PLUS || wparam == VK_ADD) {
-        g_state.params.alpha_scale = std::min(g_state.params.alpha_scale + 0.02f, 4.0f);
-      } else if (wparam == VK_OEM_MINUS || wparam == VK_SUBTRACT) {
-        g_state.params.alpha_scale = std::max(g_state.params.alpha_scale - 0.02f, 0.1f);
-      } else if (wparam == VK_OEM_6) {
-        g_state.params.fill_opacity = std::min(g_state.params.fill_opacity + 0.05f, 1.0f);
-      } else if (wparam == VK_OEM_4) {
-        g_state.params.fill_opacity = std::max(g_state.params.fill_opacity - 0.05f, 0.0f);
-      } else if (wparam == 'S') {
-        save_rendered(hwnd);
-        return 0;
-      } else {
-        return 0;
-      }
-      sync_controls_from_params();
-      render_preview();
-      update_title(hwnd);
-      repaint_now(hwnd);
-      return 0;
-    case WM_HSCROLL:
-      apply_controls_to_params();
-      render_preview();
-      update_title(hwnd);
-      repaint_now(hwnd);
-      return 0;
-    case WM_COMMAND:
-      if (LOWORD(wparam) == kIdPointMode ||
-          (LOWORD(wparam) == kIdOutputView && HIWORD(wparam) == CBN_SELCHANGE)) {
-        apply_controls_to_params();
-        render_preview();
-        update_title(hwnd);
-        repaint_now(hwnd);
-      }
-      return 0;
-    case WM_SIZE:
-      layout_controls(hwnd);
-      InvalidateRect(hwnd, nullptr, FALSE);
-      return 0;
-    case WM_ERASEBKGND:
-      return 1;
-    case WM_PAINT: {
-      PAINTSTRUCT ps{};
-      HDC hdc = BeginPaint(hwnd, &ps);
-      RECT client{};
-      GetClientRect(hwnd, &client);
-      const int width = std::max(1L, client.right - client.left);
-      const int height = std::max(1L, client.bottom - client.top);
-      HDC memory_dc = CreateCompatibleDC(hdc);
-      HBITMAP memory_bitmap = CreateCompatibleBitmap(hdc, width, height);
-      HGDIOBJ old_bitmap = SelectObject(memory_dc, memory_bitmap);
-      draw_preview(hwnd, memory_dc);
-      BitBlt(hdc, 0, 0, width, height, memory_dc, 0, 0, SRCCOPY);
-      SelectObject(memory_dc, old_bitmap);
-      DeleteObject(memory_bitmap);
-      DeleteDC(memory_dc);
-      EndPaint(hwnd, &ps);
-      return 0;
-    }
-    case WM_DESTROY:
-      PostQuitMessage(0);
-      return 0;
-    default:
-      return DefWindowProcW(hwnd, message, wparam, lparam);
   }
 }
 
@@ -630,17 +365,12 @@ void run_benchmark(HWND hwnd) {
   stats.render_ms.reserve(static_cast<std::size_t>(g_options.benchmark_frames));
   stats.draw_ms.reserve(static_cast<std::size_t>(g_options.benchmark_frames));
 
-  fit_image_rect(hwnd);
   for (int i = 0; i < g_options.benchmark_frames; ++i) {
     const auto frame_started = std::chrono::steady_clock::now();
     const float t = static_cast<float>(i) / static_cast<float>(std::max(1, g_options.benchmark_frames - 1));
-    if (g_state.params.mode == rtk::core::LightMode::Directional) {
-      g_state.params.direction_angle_degrees = t * 360.0f;
-    } else {
-      g_state.params.transform_origin_x = (0.08f + 0.84f * t) * static_cast<float>(g_state.width - 1);
-      g_state.params.transform_origin_y =
-          (0.5f + 0.35f * std::sin(t * 6.2831853f)) * static_cast<float>(g_state.height - 1);
-    }
+    g_state.params.color_multiplier.r = 0.25f + 1.5f * t;
+    g_state.params.color_multiplier.g = 1.75f - 1.5f * t;
+    g_state.params.color_multiplier.b = 1.0f;
 
     stats.render_ms.push_back(render_preview());
 
@@ -679,6 +409,67 @@ AppOptions parse_options() {
   return options;
 }
 
+LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
+  switch (message) {
+    case WM_CREATE:
+      DragAcceptFiles(hwnd, TRUE);
+      create_controls(hwnd);
+      layout_controls(hwnd);
+      return 0;
+    case WM_DROPFILES: {
+      HDROP drop = reinterpret_cast<HDROP>(wparam);
+      wchar_t path[MAX_PATH] = {};
+      if (DragQueryFileW(drop, 0, path, MAX_PATH) > 0 && load_png(path)) {
+        render_preview();
+        update_title(hwnd);
+        repaint_now(hwnd);
+      }
+      DragFinish(drop);
+      return 0;
+    }
+    case WM_HSCROLL:
+      apply_controls_to_params();
+      render_preview();
+      update_title(hwnd);
+      repaint_now(hwnd);
+      return 0;
+    case WM_KEYDOWN:
+      if (wparam == 'S') {
+        save_rendered(hwnd);
+      }
+      return 0;
+    case WM_SIZE:
+      layout_controls(hwnd);
+      InvalidateRect(hwnd, nullptr, FALSE);
+      return 0;
+    case WM_ERASEBKGND:
+      return 1;
+    case WM_PAINT: {
+      PAINTSTRUCT ps{};
+      HDC hdc = BeginPaint(hwnd, &ps);
+      RECT client{};
+      GetClientRect(hwnd, &client);
+      const int width = std::max(1L, client.right - client.left);
+      const int height = std::max(1L, client.bottom - client.top);
+      HDC memory_dc = CreateCompatibleDC(hdc);
+      HBITMAP memory_bitmap = CreateCompatibleBitmap(hdc, width, height);
+      HGDIOBJ old_bitmap = SelectObject(memory_dc, memory_bitmap);
+      draw_preview(hwnd, memory_dc);
+      BitBlt(hdc, 0, 0, width, height, memory_dc, 0, 0, SRCCOPY);
+      SelectObject(memory_dc, old_bitmap);
+      DeleteObject(memory_bitmap);
+      DeleteDC(memory_dc);
+      EndPaint(hwnd, &ps);
+      return 0;
+    }
+    case WM_DESTROY:
+      PostQuitMessage(0);
+      return 0;
+    default:
+      return DefWindowProcW(hwnd, message, wparam, lparam);
+  }
+}
+
 }  // namespace
 
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
@@ -688,10 +479,7 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
   InitCommonControlsEx(&controls);
 
   g_options = parse_options();
-  g_state.params.transform_origin_x = static_cast<float>(g_state.width - 1) * 0.5f;
-  g_state.params.transform_origin_y = static_cast<float>(g_state.height - 1) * 0.5f;
   fill_source();
-
   if (!g_options.input.empty()) {
     load_png(g_options.input);
   }
@@ -701,9 +489,8 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
   WNDCLASSW wc{};
   wc.lpfnWndProc = window_proc;
   wc.hInstance = instance;
-  wc.hCursor = LoadCursor(nullptr, IDC_CROSS);
+  wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
   wc.lpszClassName = class_name;
-  wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
   RegisterClassW(&wc);
 
   HWND hwnd = CreateWindowExW(0,

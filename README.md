@@ -1,6 +1,6 @@
 # Rimlight Toolkit
 
-Rimlight Toolkit is a native C++ scaffold for a 2D composited shadow and rimlight effect targeting:
+Rimlight Toolkit is a native C++ scaffold for host-independent image-processing logic plus native After Effects and OpenFX adapters. The current processing stack is deliberately reset to a simple color multiplier so the previewer, launch scripts, and plug-in scaffolding can be cleaned up around a stable baseline.
 
 - A host-independent renderer library.
 - A fast preview/test harness for visual iteration outside host applications.
@@ -30,7 +30,7 @@ Quick path:
 .\scripts\rtk.ps1 run
 ```
 
-On Windows this opens the native interactive preview window. Drag a PNG from Explorer onto the window to load it. Directional mode is the default and uses angle/distance controls for a uniform alpha offset. In directional mode, click-drag around the image center to set the angle directly on the canvas. Enable `Point source` to use the position/scale path; in that mode, click or drag in the canvas to move the transform origin. The `View` dropdown can inspect the final output, base mask, shadow mask, or blurred mask. You can also force the window explicitly with `.\scripts\rtk.ps1 gui`.
+On Windows this opens the native interactive preview window. Drag a PNG from Explorer onto the window to load it. The preview currently exposes only RGBA multiplier sliders. You can also force the window explicitly with `.\scripts\rtk.ps1 gui`.
 
 Run the interactive-preview benchmark:
 
@@ -38,7 +38,7 @@ Run the interactive-preview benchmark:
 .\scripts\rtk.ps1 bench --benchmark-frames 600
 ```
 
-The benchmark starts the native preview executable, simulates a drag path through the same render/draw path, writes `out\benchmark.txt`, and prints average FPS plus frame/render/draw timing statistics.
+The benchmark starts the native preview executable, animates the multiplier controls through the same render/draw path, writes `out\benchmark.txt`, and prints average FPS plus frame/render/draw timing statistics.
 
 Process a PNG:
 
@@ -46,12 +46,10 @@ Process a PNG:
 .\scripts\rtk.ps1 run --input .\path\to\source.png --out out\preview.png
 ```
 
-The CLI supports both render paths:
+Process a PNG with the CLI:
 
 ```powershell
-.\scripts\rtk.ps1 run --input .\source.png --mode directional --angle 45 --distance 16
-.\scripts\rtk.ps1 run --input .\source.png --mode point --scale 1.12 --origin-x 160 --origin-y 100
-.\scripts\rtk.ps1 run --input .\source.png --view shadow
+.\scripts\rtk.ps1 run --input .\source.png --out out\preview.png --mul-r 1 --mul-g 0.75 --mul-b 0.5
 ```
 
 Passing arguments runs the CLI preview harness instead. On Windows, `scripts\preview.cmd` can be used as a simple Explorer drop target: drag a PNG onto it and it will build/run the interactive preview against that image.
@@ -99,7 +97,7 @@ The adapter code is designed to remain thin. Missing SDK files should only affec
 The first implementation path is CPU-first, deterministic, and testable:
 
 1. Normalize host input into `rtk::core::ImageView` / `MutableImageView`.
-2. Render shadow, rim, and source composite in `rtk::core::render`.
+2. Render color multiplication in `rtk::core::render`.
 3. Map AE 8/16/32-bpc and OFX byte/short/float RGBA buffers at adapter boundaries.
 4. Add GPU parity later through backend entry points that preserve the same core parameter contract.
 

@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -17,17 +16,7 @@ struct Args {
   std::filesystem::path out = "out/preview.png";
   int width = 320;
   int height = 220;
-  rtk::core::LightMode mode = rtk::core::LightMode::Directional;
-  float angle = 45.0f;
-  float distance = 12.0f;
-  float blur = 1.0f;
-  float shadow_distance = 4.0f;
-  rtk::core::OutputView output_view = rtk::core::OutputView::Final;
-  float scale = 1.08f;
-  float origin_x = -1.0f;
-  float origin_y = -1.0f;
-  float opacity = 0.75f;
-  rtk::core::Float4 color = {1.0f, 1.0f, 1.0f, 1.0f};
+  rtk::core::Float4 multiplier = {1.0f, 1.0f, 1.0f, 1.0f};
 };
 
 bool read_value(int& i, int argc, char** argv, float& target) {
@@ -57,52 +46,14 @@ bool parse_args(int argc, char** argv, Args& args) {
       if (!read_value(i, argc, argv, args.width)) return false;
     } else if (key == "--height") {
       if (!read_value(i, argc, argv, args.height)) return false;
-    } else if (key == "--mode" && i + 1 < argc) {
-      const std::string mode = argv[++i];
-      if (mode == "directional") {
-        args.mode = rtk::core::LightMode::Directional;
-      } else if (mode == "point") {
-        args.mode = rtk::core::LightMode::Point;
-      } else {
-        return false;
-      }
-    } else if (key == "--angle") {
-      if (!read_value(i, argc, argv, args.angle)) return false;
-    } else if (key == "--distance") {
-      if (!read_value(i, argc, argv, args.distance)) return false;
-    } else if (key == "--blur") {
-      if (!read_value(i, argc, argv, args.blur)) return false;
-    } else if (key == "--shadow-distance") {
-      if (!read_value(i, argc, argv, args.shadow_distance)) return false;
-    } else if (key == "--view" && i + 1 < argc) {
-      const std::string view = argv[++i];
-      if (view == "final") {
-        args.output_view = rtk::core::OutputView::Final;
-      } else if (view == "base") {
-        args.output_view = rtk::core::OutputView::BaseMask;
-      } else if (view == "shadow") {
-        args.output_view = rtk::core::OutputView::ShadowMask;
-      } else if (view == "blurred") {
-        args.output_view = rtk::core::OutputView::BlurredMask;
-      } else {
-        return false;
-      }
-    } else if (key == "--scale") {
-      if (!read_value(i, argc, argv, args.scale)) return false;
-    } else if (key == "--origin-x") {
-      if (!read_value(i, argc, argv, args.origin_x)) return false;
-    } else if (key == "--origin-y") {
-      if (!read_value(i, argc, argv, args.origin_y)) return false;
-    } else if (key == "--opacity") {
-      if (!read_value(i, argc, argv, args.opacity)) return false;
-    } else if (key == "--color-r") {
-      if (!read_value(i, argc, argv, args.color.r)) return false;
-    } else if (key == "--color-g") {
-      if (!read_value(i, argc, argv, args.color.g)) return false;
-    } else if (key == "--color-b") {
-      if (!read_value(i, argc, argv, args.color.b)) return false;
-    } else if (key == "--color-a") {
-      if (!read_value(i, argc, argv, args.color.a)) return false;
+    } else if (key == "--mul-r") {
+      if (!read_value(i, argc, argv, args.multiplier.r)) return false;
+    } else if (key == "--mul-g") {
+      if (!read_value(i, argc, argv, args.multiplier.g)) return false;
+    } else if (key == "--mul-b") {
+      if (!read_value(i, argc, argv, args.multiplier.b)) return false;
+    } else if (key == "--mul-a") {
+      if (!read_value(i, argc, argv, args.multiplier.a)) return false;
     } else {
       return false;
     }
@@ -111,22 +62,14 @@ bool parse_args(int argc, char** argv, Args& args) {
 }
 
 void fill_source(std::vector<std::uint8_t>& pixels, int width, int height) {
-  const float cx = width * 0.45f;
-  const float cy = height * 0.45f;
-  const float rx = width * 0.24f;
-  const float ry = height * 0.30f;
-
   pixels.assign(static_cast<std::size_t>(width) * height * 4, 0);
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
-      const float nx = (x - cx) / rx;
-      const float ny = (y - cy) / ry;
-      const bool inside = nx * nx + ny * ny <= 1.0f;
       const std::size_t index = (static_cast<std::size_t>(y) * width + x) * 4;
-      pixels[index + 0] = 41;
-      pixels[index + 1] = 184;
-      pixels[index + 2] = 242;
-      pixels[index + 3] = inside ? 255 : 0;
+      pixels[index + 0] = static_cast<std::uint8_t>((x * 255) / std::max(1, width - 1));
+      pixels[index + 1] = static_cast<std::uint8_t>((y * 255) / std::max(1, height - 1));
+      pixels[index + 2] = 180;
+      pixels[index + 3] = 255;
     }
   }
 }
@@ -171,10 +114,7 @@ int main(int argc, char** argv) {
   Args args;
   if (!parse_args(argc, argv, args)) {
     std::cerr << "Usage: rtk_preview_cli [--input image.png] [--out image.png] [--width n] [--height n] "
-                 "[--mode directional|point] [--angle degrees] [--distance px] "
-                 "[--blur px] [--shadow-distance px] [--view final|base|shadow|blurred] "
-                 "[--scale value] [--origin-x px] [--origin-y px] [--opacity value] "
-                 "[--color-r value] [--color-g value] [--color-b value] [--color-a value]\n";
+                 "[--mul-r value] [--mul-g value] [--mul-b value] [--mul-a value]\n";
     return 2;
   }
 
@@ -192,17 +132,7 @@ int main(int argc, char** argv) {
   std::vector<std::uint8_t> destination(source.size(), 0);
 
   rtk::core::RenderParams params;
-  params.mode = args.mode;
-  params.output_view = args.output_view;
-  params.direction_angle_degrees = args.angle;
-  params.direction_distance = args.distance;
-  params.mask_blur_radius = args.blur;
-  params.shadow_distance = args.shadow_distance;
-  params.alpha_scale = args.scale;
-  params.transform_origin_x = args.origin_x;
-  params.transform_origin_y = args.origin_y;
-  params.fill_opacity = args.opacity;
-  params.fill_color = args.color;
+  params.color_multiplier = args.multiplier;
 
   const rtk::core::ImageView src{source.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};
   const rtk::core::MutableImageView dst{destination.data(), width, height, width * 4, rtk::core::PixelFormat::RgbaU8};

@@ -19,10 +19,8 @@ OfxParameterSuiteV1* g_parameter = nullptr;
 constexpr const char* kPluginIdentifier = "com.dgruwier.rimlighttoolkit";
 constexpr const char* kSourceClip = "Source";
 constexpr const char* kOutputClip = "Output";
-constexpr const char* kTransformOrigin = "transformOrigin";
-constexpr const char* kAlphaScale = "alphaScale";
-constexpr const char* kFillColor = "fillColor";
-constexpr const char* kFillOpacity = "fillOpacity";
+constexpr const char* kMultiplierColor = "multiplierColor";
+constexpr const char* kAlphaMultiplier = "alphaMultiplier";
 
 bool fetch_suites() {
   if (!g_host || !g_host->fetchSuite) {
@@ -81,18 +79,11 @@ OfxStatus describe_in_context(OfxImageEffectHandle effect) {
   OfxParamSetHandle params = nullptr;
   g_image_effect->getParamSet(effect, &params);
 
-  OfxPropertySetHandle offset_props = nullptr;
-  g_parameter->paramDefine(params, kOfxParamTypeDouble2D, kTransformOrigin, &offset_props);
-  g_property->propSetString(offset_props, kOfxPropLabel, 0, "Light Position");
-  g_property->propSetDouble(offset_props, kOfxParamPropDefault, 0, 12.0);
-  g_property->propSetDouble(offset_props, kOfxParamPropDefault, 1, 12.0);
-
-  define_double_param(params, kAlphaScale, "Alpha Scale", 1.08, 1.0, 4.0);
-  define_double_param(params, kFillOpacity, "Fill Opacity", 0.75, 0.0, 1.0);
+  define_double_param(params, kAlphaMultiplier, "Alpha Multiplier", 1.0, 0.0, 1.0);
 
   OfxPropertySetHandle fill_color_props = nullptr;
-  g_parameter->paramDefine(params, kOfxParamTypeRGB, kFillColor, &fill_color_props);
-  g_property->propSetString(fill_color_props, kOfxPropLabel, 0, "Fill Color");
+  g_parameter->paramDefine(params, kOfxParamTypeRGB, kMultiplierColor, &fill_color_props);
+  g_property->propSetString(fill_color_props, kOfxPropLabel, 0, "Color Multiplier");
   g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 0, 1.0);
   g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 1, 1.0);
   g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 2, 1.0);
@@ -115,33 +106,21 @@ rtk::core::RenderParams read_params(OfxImageEffectHandle effect, double time) {
   g_image_effect->getParamSet(effect, &params);
 
   rtk::core::RenderParams result;
-  result.mode = rtk::core::LightMode::Point;
   OfxParamHandle handle = nullptr;
-  double x = 0.0;
-  double y = 0.0;
   double value = 0.0;
   double r = 0.0;
   double g = 0.0;
   double b = 0.0;
 
-  g_parameter->paramGetHandle(params, kTransformOrigin, &handle, nullptr);
-  g_parameter->paramGetValueAtTime(handle, time, &x, &y);
-  result.transform_origin_x = static_cast<float>(x);
-  result.transform_origin_y = static_cast<float>(y);
-
-  g_parameter->paramGetHandle(params, kAlphaScale, &handle, nullptr);
+  g_parameter->paramGetHandle(params, kAlphaMultiplier, &handle, nullptr);
   g_parameter->paramGetValueAtTime(handle, time, &value);
-  result.alpha_scale = static_cast<float>(value);
+  result.color_multiplier.a = static_cast<float>(value);
 
-  g_parameter->paramGetHandle(params, kFillOpacity, &handle, nullptr);
-  g_parameter->paramGetValueAtTime(handle, time, &value);
-  result.fill_opacity = static_cast<float>(value);
-
-  g_parameter->paramGetHandle(params, kFillColor, &handle, nullptr);
+  g_parameter->paramGetHandle(params, kMultiplierColor, &handle, nullptr);
   g_parameter->paramGetValueAtTime(handle, time, &r, &g, &b);
-  result.fill_color.r = static_cast<float>(r);
-  result.fill_color.g = static_cast<float>(g);
-  result.fill_color.b = static_cast<float>(b);
+  result.color_multiplier.r = static_cast<float>(r);
+  result.color_multiplier.g = static_cast<float>(g);
+  result.color_multiplier.b = static_cast<float>(b);
   return result;
 }
 
