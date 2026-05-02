@@ -28,6 +28,9 @@ constexpr int kIdOpacity = 1002;
 constexpr int kIdRed = 1003;
 constexpr int kIdGreen = 1004;
 constexpr int kIdBlue = 1005;
+constexpr int kIdPointMode = 1006;
+constexpr int kIdAngle = 1007;
+constexpr int kIdDistance = 1008;
 
 struct RectF {
   float x = 0.0f;
@@ -62,6 +65,9 @@ struct TimingStats {
 };
 
 struct UiControls {
+  HWND point_mode = nullptr;
+  HWND angle = nullptr;
+  HWND distance = nullptr;
   HWND scale = nullptr;
   HWND opacity = nullptr;
   HWND red = nullptr;
@@ -124,10 +130,28 @@ HWND create_slider(HWND parent, int id) {
                          nullptr);
 }
 
+HWND create_checkbox(HWND parent, int id, const wchar_t* text) {
+  return CreateWindowExW(0,
+                         L"BUTTON",
+                         text,
+                         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                         0,
+                         0,
+                         10,
+                         kSliderHeight,
+                         parent,
+                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                         GetModuleHandleW(nullptr),
+                         nullptr);
+}
+
 void sync_controls_from_params() {
   if (!g_ui.scale) {
     return;
   }
+  SendMessageW(g_ui.point_mode, BM_SETCHECK, g_state.params.mode == rtk::core::LightMode::Point ? BST_CHECKED : BST_UNCHECKED, 0);
+  set_slider(g_ui.angle, 0, 360, static_cast<int>(std::lround(g_state.params.direction_angle_degrees)));
+  set_slider(g_ui.distance, 0, 256, static_cast<int>(std::lround(g_state.params.direction_distance)));
   set_slider(g_ui.scale, 50, 400, static_cast<int>(std::lround(g_state.params.alpha_scale * 100.0f)));
   set_slider(g_ui.opacity, 0, 100, static_cast<int>(std::lround(g_state.params.fill_opacity * 100.0f)));
   set_slider(g_ui.red, 0, 255, static_cast<int>(std::lround(std::clamp(g_state.params.fill_color.r, 0.0f, 1.0f) * 255.0f)));
@@ -139,6 +163,11 @@ void apply_controls_to_params() {
   if (!g_ui.scale) {
     return;
   }
+  g_state.params.mode = SendMessageW(g_ui.point_mode, BM_GETCHECK, 0, 0) == BST_CHECKED
+                            ? rtk::core::LightMode::Point
+                            : rtk::core::LightMode::Directional;
+  g_state.params.direction_angle_degrees = static_cast<float>(slider_pos(g_ui.angle));
+  g_state.params.direction_distance = static_cast<float>(slider_pos(g_ui.distance));
   g_state.params.alpha_scale = static_cast<float>(slider_pos(g_ui.scale)) / 100.0f;
   g_state.params.fill_opacity = static_cast<float>(slider_pos(g_ui.opacity)) / 100.0f;
   g_state.params.fill_color.r = static_cast<float>(slider_pos(g_ui.red)) / 255.0f;
@@ -147,6 +176,11 @@ void apply_controls_to_params() {
 }
 
 void create_controls(HWND hwnd) {
+  g_ui.point_mode = create_checkbox(hwnd, kIdPointMode, L"Point source");
+  create_label(hwnd, L"Direction angle");
+  g_ui.angle = create_slider(hwnd, kIdAngle);
+  create_label(hwnd, L"Direction distance");
+  g_ui.distance = create_slider(hwnd, kIdDistance);
   create_label(hwnd, L"Scale");
   g_ui.scale = create_slider(hwnd, kIdScale);
   create_label(hwnd, L"Opacity");
@@ -175,6 +209,9 @@ void layout_controls(HWND hwnd) {
     if (wcscmp(class_name, L"Static") == 0 || wcscmp(class_name, L"STATIC") == 0) {
       MoveWindow(child, control_x, y, control_w, kLabelHeight, TRUE);
       y += kLabelHeight;
+    } else if (wcscmp(class_name, L"Button") == 0 || wcscmp(class_name, L"BUTTON") == 0) {
+      MoveWindow(child, control_x, y, control_w, kSliderHeight, TRUE);
+      y += kSliderHeight + 10;
     } else {
       MoveWindow(child, control_x, y, control_w, kSliderHeight, TRUE);
       y += kSliderHeight + 14;
@@ -255,9 +292,11 @@ double render_preview() {
 
 void update_title(HWND hwnd) {
   const std::wstring file = g_state.source_path.empty() ? L"Synthetic Source" : g_state.source_path.filename().wstring();
+  const wchar_t* mode = g_state.params.mode == rtk::core::LightMode::Directional ? L"Directional" : L"Point";
   wchar_t title[512] = {};
-  swprintf_s(title, L"Rimlight Toolkit Preview - %s - scale %.2f opacity %.2f",
-             file.c_str(), g_state.params.alpha_scale, g_state.params.fill_opacity);
+  swprintf_s(title, L"Rimlight Toolkit Preview - %s - %s - angle %.0f distance %.0f scale %.2f opacity %.2f",
+             file.c_str(), mode, g_state.params.direction_angle_degrees, g_state.params.direction_distance,
+             g_state.params.alpha_scale, g_state.params.fill_opacity);
   SetWindowTextW(hwnd, title);
 }
 
@@ -345,17 +384,28 @@ double draw_preview(HWND hwnd, HDC hdc) {
                 DIB_RGB_COLORS,
                 SRCCOPY);
 
-  const int origin_x = static_cast<int>(g_state.image_rect.x +
-      (g_state.params.transform_origin_x / static_cast<float>(g_state.width)) * g_state.image_rect.w);
-  const int origin_y = static_cast<int>(g_state.image_rect.y +
-      (g_state.params.transform_origin_y / static_cast<float>(g_state.height)) * g_state.image_rect.h);
-
   HPEN pen = CreatePen(PS_SOLID, 1, RGB(255, 210, 64));
   HGDIOBJ old_pen = SelectObject(hdc, pen);
-  MoveToEx(hdc, origin_x - 8, origin_y, nullptr);
-  LineTo(hdc, origin_x + 9, origin_y);
-  MoveToEx(hdc, origin_x, origin_y - 8, nullptr);
-  LineTo(hdc, origin_x, origin_y + 9);
+  if (g_state.params.mode == rtk::core::LightMode::Directional) {
+    const float radians = g_state.params.direction_angle_degrees * (3.14159265358979323846f / 180.0f);
+    const int cx = static_cast<int>(g_state.image_rect.x + g_state.image_rect.w * 0.5f);
+    const int cy = static_cast<int>(g_state.image_rect.y + g_state.image_rect.h * 0.5f);
+    const int length = 48;
+    const int x2 = cx + static_cast<int>(std::cos(radians) * length);
+    const int y2 = cy + static_cast<int>(std::sin(radians) * length);
+    MoveToEx(hdc, cx, cy, nullptr);
+    LineTo(hdc, x2, y2);
+    Ellipse(hdc, x2 - 3, y2 - 3, x2 + 4, y2 + 4);
+  } else {
+    const int origin_x = static_cast<int>(g_state.image_rect.x +
+        (g_state.params.transform_origin_x / static_cast<float>(g_state.width)) * g_state.image_rect.w);
+    const int origin_y = static_cast<int>(g_state.image_rect.y +
+        (g_state.params.transform_origin_y / static_cast<float>(g_state.height)) * g_state.image_rect.h);
+    MoveToEx(hdc, origin_x - 8, origin_y, nullptr);
+    LineTo(hdc, origin_x + 9, origin_y);
+    MoveToEx(hdc, origin_x, origin_y - 8, nullptr);
+    LineTo(hdc, origin_x, origin_y + 9);
+  }
   SelectObject(hdc, old_pen);
   DeleteObject(pen);
   GdiFlush();
@@ -433,6 +483,14 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       render_preview();
       update_title(hwnd);
       repaint_now(hwnd);
+      return 0;
+    case WM_COMMAND:
+      if (LOWORD(wparam) == kIdPointMode) {
+        apply_controls_to_params();
+        render_preview();
+        update_title(hwnd);
+        repaint_now(hwnd);
+      }
       return 0;
     case WM_SIZE:
       layout_controls(hwnd);
@@ -516,9 +574,13 @@ void run_benchmark(HWND hwnd) {
   for (int i = 0; i < g_options.benchmark_frames; ++i) {
     const auto frame_started = std::chrono::steady_clock::now();
     const float t = static_cast<float>(i) / static_cast<float>(std::max(1, g_options.benchmark_frames - 1));
-    g_state.params.transform_origin_x = (0.08f + 0.84f * t) * static_cast<float>(g_state.width - 1);
-    g_state.params.transform_origin_y =
-        (0.5f + 0.35f * std::sin(t * 6.2831853f)) * static_cast<float>(g_state.height - 1);
+    if (g_state.params.mode == rtk::core::LightMode::Directional) {
+      g_state.params.direction_angle_degrees = t * 360.0f;
+    } else {
+      g_state.params.transform_origin_x = (0.08f + 0.84f * t) * static_cast<float>(g_state.width - 1);
+      g_state.params.transform_origin_y =
+          (0.5f + 0.35f * std::sin(t * 6.2831853f)) * static_cast<float>(g_state.height - 1);
+    }
 
     stats.render_ms.push_back(render_preview());
 

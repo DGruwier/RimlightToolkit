@@ -8,6 +8,8 @@
 namespace rtk::core {
 namespace {
 
+constexpr float kPi = 3.14159265358979323846f;
+
 float clamp01(float value) noexcept {
   return std::clamp(value, 0.0f, 1.0f);
 }
@@ -117,10 +119,19 @@ float sample_alpha_bilinear(const ImageView& image, float x, float y) noexcept {
   return ax0 + (ax1 - ax0) * ty;
 }
 
-float scaled_inverse_alpha_mask_at(const ImageView& source,
-                                   const RenderParams& params,
-                                   int x,
-                                   int y) noexcept {
+void transformed_alpha_sample_position(const ImageView& source,
+                                       const RenderParams& params,
+                                       int x,
+                                       int y,
+                                       float& sample_x,
+                                       float& sample_y) noexcept {
+  if (params.mode == LightMode::Directional) {
+    const float radians = params.direction_angle_degrees * (kPi / 180.0f);
+    sample_x = static_cast<float>(x) - std::cos(radians) * params.direction_distance;
+    sample_y = static_cast<float>(y) - std::sin(radians) * params.direction_distance;
+    return;
+  }
+
   const float scale = std::max(params.alpha_scale, 0.0001f);
   const float origin_x = params.transform_origin_x >= 0.0f
                              ? params.transform_origin_x
@@ -129,12 +140,25 @@ float scaled_inverse_alpha_mask_at(const ImageView& source,
                              ? params.transform_origin_y
                              : (static_cast<float>(source.height - 1) * 0.5f);
 
-  const float sx = origin_x + (static_cast<float>(x) - origin_x) / scale;
-  const float sy = origin_y + (static_cast<float>(y) - origin_y) / scale;
+  sample_x = origin_x + (static_cast<float>(x) - origin_x) / scale;
+  sample_y = origin_y + (static_cast<float>(y) - origin_y) / scale;
+}
+
+float inverse_alpha_matted_with_source(float original_alpha, float transformed_alpha) noexcept {
+  return clamp01((1.0f - transformed_alpha) * original_alpha);
+}
+
+float transformed_inverse_alpha_mask_at(const ImageView& source,
+                                        const RenderParams& params,
+                                        int x,
+                                        int y) noexcept {
+  float sx = 0.0f;
+  float sy = 0.0f;
+  transformed_alpha_sample_position(source, params, x, y, sx, sy);
 
   const float original_alpha = alpha_at(source, x, y);
-  const float transformed_inverse_alpha = 1.0f - sample_alpha_bilinear(source, sx, sy);
-  return clamp01(transformed_inverse_alpha * original_alpha);
+  const float transformed_alpha = sample_alpha_bilinear(source, sx, sy);
+  return inverse_alpha_matted_with_source(original_alpha, transformed_alpha);
 }
 
 bool dimensions_match(const ImageView& source, const MutableImageView& destination) noexcept {
@@ -174,6 +198,9 @@ float sample_alpha_bilinear_u8(const ImageView& image, float x, float y) noexcep
 void render_u8(const ImageView& source, const MutableImageView& destination, const RenderParams& params) {
   const float scale = std::max(params.alpha_scale, 0.0001f);
   const float inverse_scale = 1.0f / scale;
+  const float direction_radians = params.direction_angle_degrees * (kPi / 180.0f);
+  const float direction_x = std::cos(direction_radians) * params.direction_distance;
+  const float direction_y = std::sin(direction_radians) * params.direction_distance;
   const float origin_x = params.transform_origin_x >= 0.0f
                              ? params.transform_origin_x
                              : (static_cast<float>(source.width - 1) * 0.5f);
@@ -189,14 +216,18 @@ void render_u8(const ImageView& source, const MutableImageView& destination, con
   for (int y = 0; y < source.height; ++y) {
     const auto* src_row = static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y;
     auto* dst_row = static_cast<std::uint8_t*>(destination.data) + destination.row_bytes * y;
-    const float sy = origin_y + (static_cast<float>(y) - origin_y) * inverse_scale;
+    const float point_sy = origin_y + (static_cast<float>(y) - origin_y) * inverse_scale;
+    const float directional_sy = static_cast<float>(y) - direction_y;
 
     for (int x = 0; x < source.width; ++x) {
       const int offset = x * 4;
       const float src_a = (src_row[offset + 3] * (1.0f / 255.0f)) * source_opacity;
-      const float sx = origin_x + (static_cast<float>(x) - origin_x) * inverse_scale;
-      const float sampled_alpha = sample_alpha_bilinear_u8(source, sx, sy);
-      const float fill_a = clamp01((1.0f - sampled_alpha) * src_a * fill_opacity);
+      const float point_sx = origin_x + (static_cast<float>(x) - origin_x) * inverse_scale;
+      const float directional_sx = static_cast<float>(x) - direction_x;
+      const float sample_x = params.mode == LightMode::Directional ? directional_sx : point_sx;
+      const float sample_y = params.mode == LightMode::Directional ? directional_sy : point_sy;
+      const float sampled_alpha = sample_alpha_bilinear_u8(source, sample_x, sample_y);
+      const float fill_a = inverse_alpha_matted_with_source(src_a, sampled_alpha) * fill_opacity;
       const float out_a = fill_a + src_a * (1.0f - fill_a);
 
       if (out_a <= std::numeric_limits<float>::epsilon()) {
@@ -261,7 +292,7 @@ RenderResult render(const ImageView& source,
       Float4 src = load_pixel(source, x, y);
       src.a *= source_opacity;
 
-      const float mask = scaled_inverse_alpha_mask_at(source, params, x, y);
+      const float mask = transformed_inverse_alpha_mask_at(source, params, x, y);
       const Float4 fill = {
           clamp01(params.fill_color.r),
           clamp01(params.fill_color.g),

@@ -25,6 +25,7 @@ rtk::core::PixelFormat pixel_format_for_world(const PF_EffectWorld& world) {
 
 rtk::core::RenderParams read_params(PF_ParamDef* params[]) {
   rtk::core::RenderParams result;
+  result.mode = rtk::core::LightMode::Point;
 
   result.transform_origin_x = static_cast<float>(params[kTransformOrigin]->u.td.x_value) / 65536.0f;
   result.transform_origin_y = static_cast<float>(params[kTransformOrigin]->u.td.y_value) / 65536.0f;

@@ -30,6 +30,7 @@ void scaled_inverse_alpha_creates_inner_matte() {
   source[index + 3] = 1.0f;
 
   rtk::core::RenderParams params;
+  params.mode = rtk::core::LightMode::Point;
   params.transform_origin_x = 0.0f;
   params.transform_origin_y = 0.0f;
   params.alpha_scale = 2.0f;
@@ -52,6 +53,39 @@ void scaled_inverse_alpha_creates_inner_matte() {
   assert(std::fabs(destination[index + 3] - 1.0f) < 0.001f);
 }
 
+void directional_offset_creates_inner_matte() {
+  constexpr int width = 4;
+  constexpr int height = 1;
+  std::vector<float> source(width * height * 4, 0.0f);
+  std::vector<float> destination(width * height * 4, 0.0f);
+
+  const int x = 1;
+  const int index = x * 4;
+  source[index + 0] = 0.2f;
+  source[index + 1] = 0.3f;
+  source[index + 2] = 0.4f;
+  source[index + 3] = 1.0f;
+
+  rtk::core::RenderParams params;
+  params.mode = rtk::core::LightMode::Directional;
+  params.direction_angle_degrees = 0.0f;
+  params.direction_distance = 1.0f;
+  params.fill_color = {1.0f, 1.0f, 1.0f, 1.0f};
+  params.fill_opacity = 0.5f;
+
+  const rtk::core::ImageView src{
+      source.data(), width, height, width * 4 * static_cast<int>(sizeof(float)),
+      rtk::core::PixelFormat::RgbaF32};
+  const rtk::core::MutableImageView dst{
+      destination.data(), width, height, width * 4 * static_cast<int>(sizeof(float)),
+      rtk::core::PixelFormat::RgbaF32};
+
+  const auto result = rtk::core::render(src, dst, params);
+  assert(result.status == rtk::core::RenderStatus::Ok);
+  assert(destination[index + 0] > source[index + 0]);
+  assert(std::fabs(destination[index + 3] - 1.0f) < 0.001f);
+}
+
 void transparent_pixels_do_not_receive_fill() {
   constexpr int width = 2;
   constexpr int height = 1;
@@ -61,6 +95,7 @@ void transparent_pixels_do_not_receive_fill() {
   source[3] = 255;
 
   rtk::core::RenderParams params;
+  params.mode = rtk::core::LightMode::Point;
   params.transform_origin_x = 0.0f;
   params.transform_origin_y = 0.0f;
   params.alpha_scale = 2.0f;
@@ -80,6 +115,7 @@ void transparent_pixels_do_not_receive_fill() {
 int main() {
   render_rejects_bad_inputs();
   scaled_inverse_alpha_creates_inner_matte();
+  directional_offset_creates_inner_matte();
   transparent_pixels_do_not_receive_fill();
   return 0;
 }

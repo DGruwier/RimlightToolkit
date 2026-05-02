@@ -17,6 +17,9 @@ struct Args {
   std::filesystem::path out = "out/preview.png";
   int width = 320;
   int height = 220;
+  rtk::core::LightMode mode = rtk::core::LightMode::Directional;
+  float angle = 45.0f;
+  float distance = 12.0f;
   float scale = 1.08f;
   float origin_x = -1.0f;
   float origin_y = -1.0f;
@@ -51,6 +54,19 @@ bool parse_args(int argc, char** argv, Args& args) {
       if (!read_value(i, argc, argv, args.width)) return false;
     } else if (key == "--height") {
       if (!read_value(i, argc, argv, args.height)) return false;
+    } else if (key == "--mode" && i + 1 < argc) {
+      const std::string mode = argv[++i];
+      if (mode == "directional") {
+        args.mode = rtk::core::LightMode::Directional;
+      } else if (mode == "point") {
+        args.mode = rtk::core::LightMode::Point;
+      } else {
+        return false;
+      }
+    } else if (key == "--angle") {
+      if (!read_value(i, argc, argv, args.angle)) return false;
+    } else if (key == "--distance") {
+      if (!read_value(i, argc, argv, args.distance)) return false;
     } else if (key == "--scale") {
       if (!read_value(i, argc, argv, args.scale)) return false;
     } else if (key == "--origin-x") {
@@ -135,6 +151,7 @@ int main(int argc, char** argv) {
   Args args;
   if (!parse_args(argc, argv, args)) {
     std::cerr << "Usage: rtk_preview_cli [--input image.png] [--out image.png] [--width n] [--height n] "
+                 "[--mode directional|point] [--angle degrees] [--distance px] "
                  "[--scale value] [--origin-x px] [--origin-y px] [--opacity value] "
                  "[--color-r value] [--color-g value] [--color-b value] [--color-a value]\n";
     return 2;
@@ -154,6 +171,9 @@ int main(int argc, char** argv) {
   std::vector<std::uint8_t> destination(source.size(), 0);
 
   rtk::core::RenderParams params;
+  params.mode = args.mode;
+  params.direction_angle_degrees = args.angle;
+  params.direction_distance = args.distance;
   params.alpha_scale = args.scale;
   params.transform_origin_x = args.origin_x;
   params.transform_origin_y = args.origin_y;

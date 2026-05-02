@@ -115,6 +115,7 @@ rtk::core::RenderParams read_params(OfxImageEffectHandle effect, double time) {
   g_image_effect->getParamSet(effect, &params);
 
   rtk::core::RenderParams result;
+  result.mode = rtk::core::LightMode::Point;
   OfxParamHandle handle = nullptr;
   double x = 0.0;
   double y = 0.0;

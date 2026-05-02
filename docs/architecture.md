@@ -16,7 +16,9 @@ All host-specific concepts such as `PF_EffectWorld`, `PF_ParamDef`, `OfxImageEff
 The initial CPU path is generic matte transformation over RGBA pixels:
 
 1. Sample the source alpha.
-2. Scale the alpha field around a transform origin controlled by the host or preview canvas.
+2. Transform the alpha field with one of two paths:
+   - Directional: sample alpha at a uniform angle/distance offset.
+   - Point: scale alpha around a transform origin controlled by the host or preview canvas.
 3. Invert the transformed alpha.
 4. Matte that inverse alpha with the original alpha.
 5. Use the resulting mask to stencil a user color and opacity.

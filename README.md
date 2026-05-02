@@ -30,7 +30,7 @@ Quick path:
 .\scripts\rtk.ps1 run
 ```
 
-On Windows this opens the native interactive preview window. Drag a PNG from Explorer onto the window to load it, then click or drag in the canvas to move the transform origin. You can also force the window explicitly with `.\scripts\rtk.ps1 gui`.
+On Windows this opens the native interactive preview window. Drag a PNG from Explorer onto the window to load it. Directional mode is the default and uses angle/distance controls for a uniform alpha offset. Enable `Point source` to use the position/scale path; in that mode, click or drag in the canvas to move the transform origin. You can also force the window explicitly with `.\scripts\rtk.ps1 gui`.
 
 Run the interactive-preview benchmark:
 
@@ -44,6 +44,13 @@ Process a PNG:
 
 ```powershell
 .\scripts\rtk.ps1 run --input .\path\to\source.png --out out\preview.png
+```
+
+The CLI supports both render paths:
+
+```powershell
+.\scripts\rtk.ps1 run --input .\source.png --mode directional --angle 45 --distance 16
+.\scripts\rtk.ps1 run --input .\source.png --mode point --scale 1.12 --origin-x 160 --origin-y 100
 ```
 
 Passing arguments runs the CLI preview harness instead. On Windows, `scripts\preview.cmd` can be used as a simple Explorer drop target: drag a PNG onto it and it will build/run the interactive preview against that image.
