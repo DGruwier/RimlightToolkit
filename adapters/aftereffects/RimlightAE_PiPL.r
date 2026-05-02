@@ -12,7 +12,7 @@ resource 'PiPL' (16000) {
     AE_Effect_Version { 0x00010000 },
     AE_Effect_Info_Flags { 0 },
     AE_Effect_Global_OutFlags { PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_USE_OUTPUT_EXTENT },
-    AE_Effect_Global_OutFlags_2 { PF_OutFlag2_FLOAT_COLOR_AWARE | PF_OutFlag2_SUPPORTS_SMART_RENDER | PF_OutFlag2_SUPPORTS_THREADED_RENDERING },
+    AE_Effect_Global_OutFlags_2 { PF_OutFlag2_SUPPORTS_THREADED_RENDERING },
     AE_Effect_Match_Name { "DGruwier Rimlight Toolkit" },
     AE_Reserved_Info { 0 }
   }

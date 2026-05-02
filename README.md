@@ -8,6 +8,7 @@ Rimlight Toolkit is a native C++ scaffold for host-independent image-processing 
 - OpenFX hosts such as Nuke, Resolve, Fusion, Natron, and Flame.
 
 The current repository is intentionally structured so most algorithm work happens in `rtk_core`. Host adapters only translate host pixels and parameters into the core API.
+The core also owns the small parameter schema used by the previewer and adapter scaffolds, so labels/defaults/ranges stay tied to the render contract instead of drifting across hosts.
 
 ## Layout
 
@@ -17,6 +18,7 @@ src/core/                  CPU renderer implementation
 apps/preview_cli/          Small CLI preview harness for parameter iteration
 adapters/aftereffects/     Optional AE SmartFX-style adapter scaffold
 adapters/ofx/              Optional OpenFX image-effect adapter scaffold
+assets/test_images/        Default visual test inputs for preview and smoke testing
 tests/                     Core renderer regression tests
 cmake/                     SDK discovery helpers
 docs/                      Architecture and SDK notes
@@ -30,7 +32,7 @@ Quick path:
 .\scripts\rtk.ps1 run
 ```
 
-On Windows this opens the native interactive preview window. Drag a PNG from Explorer onto the window to load it. The preview currently exposes only RGBA multiplier sliders. You can also force the window explicitly with `.\scripts\rtk.ps1 gui`.
+On Windows this opens the native interactive preview window using `assets/test_images/test_case_john_01.png` by default. Drag a PNG from Explorer onto the window to replace it. The preview currently exposes only RGBA multiplier sliders. You can also force the window explicitly with `.\scripts\rtk.ps1 gui`.
 
 Run the interactive-preview benchmark:
 
@@ -45,6 +47,8 @@ Process a PNG:
 ```powershell
 .\scripts\rtk.ps1 run --input .\path\to\source.png --out out\preview.png
 ```
+
+If no PNG is supplied, the CLI preview uses the same default test image and falls back to a synthetic gradient only when the asset is unavailable.
 
 Process a PNG with the CLI:
 

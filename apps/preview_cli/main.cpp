@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -16,8 +17,31 @@ struct Args {
   std::filesystem::path out = "out/preview.png";
   int width = 320;
   int height = 220;
-  rtk::core::Float4 multiplier = {1.0f, 1.0f, 1.0f, 1.0f};
+  rtk::core::Float4 multiplier = rtk::core::kColorMultiplierControl.default_value;
 };
+
+std::filesystem::path default_test_image_path() {
+  const std::filesystem::path relative = std::filesystem::path("assets") / "test_images" / "test_case_john_01.png";
+  std::error_code error;
+  std::filesystem::path current = std::filesystem::current_path(error);
+  if (error) {
+    return relative;
+  }
+
+  while (!current.empty()) {
+    const std::filesystem::path candidate = current / relative;
+    if (std::filesystem::exists(candidate, error)) {
+      return candidate;
+    }
+    const std::filesystem::path parent = current.parent_path();
+    if (parent == current) {
+      break;
+    }
+    current = parent;
+  }
+
+  return relative;
+}
 
 bool read_value(int& i, int argc, char** argv, float& target) {
   if (i + 1 >= argc) {
@@ -123,6 +147,10 @@ int main(int argc, char** argv) {
   int height = args.height;
   if (!args.input.empty()) {
     if (!load_png(args.input, source, width, height)) {
+      return 1;
+    }
+  } else if (const auto default_image = default_test_image_path(); std::filesystem::exists(default_image)) {
+    if (!load_png(default_image, source, width, height)) {
       return 1;
     }
   } else {

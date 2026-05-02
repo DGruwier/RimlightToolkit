@@ -39,9 +39,7 @@ rtk::core::RenderParams read_params(PF_ParamDef* params[]) {
 PF_Err global_setup(PF_OutData* out_data) {
   out_data->my_version = PF_VERSION(0, 1, 0, 0, 1);
   out_data->out_flags = PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_USE_OUTPUT_EXTENT;
-  out_data->out_flags2 = PF_OutFlag2_FLOAT_COLOR_AWARE |
-                         PF_OutFlag2_SUPPORTS_SMART_RENDER |
-                         PF_OutFlag2_SUPPORTS_THREADED_RENDERING;
+  out_data->out_flags2 = PF_OutFlag2_SUPPORTS_THREADED_RENDERING;
   return PF_Err_NONE;
 }
 
@@ -50,10 +48,19 @@ PF_Err params_setup(PF_InData* in_data, PF_OutData* out_data) {
   PF_ParamDef def;
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_COLOR("Color Multiplier", 255, 255, 255, kMultiplierColor);
+  PF_ADD_COLOR(rtk::core::kColorMultiplierControl.label, 255, 255, 255, kMultiplierColor);
 
   AEFX_CLR_STRUCT(def);
-  PF_ADD_FLOAT_SLIDERX("Alpha Multiplier", 0, 1, 0, 1, 1, PF_Precision_HUNDREDTHS, 0, 0, kAlphaMultiplier);
+  PF_ADD_FLOAT_SLIDERX(rtk::core::kAlphaMultiplierControl.label,
+                       rtk::core::kAlphaMultiplierControl.display_min,
+                       rtk::core::kAlphaMultiplierControl.display_max,
+                       rtk::core::kAlphaMultiplierControl.display_min,
+                       rtk::core::kAlphaMultiplierControl.display_max,
+                       rtk::core::kAlphaMultiplierControl.default_value,
+                       PF_Precision_HUNDREDTHS,
+                       0,
+                       0,
+                       kAlphaMultiplier);
 
   out_data->num_params = kParamCount;
   return err;

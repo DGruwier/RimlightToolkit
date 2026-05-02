@@ -4,7 +4,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+Set-Location $Root
 $BuildDir = if ($env:RTK_BUILD_DIR) { $env:RTK_BUILD_DIR } else { Join-Path $Root "build" }
 $Config = if ($env:RTK_CONFIG) { $env:RTK_CONFIG } else { "Release" }
 $PreviewArgs = @($args)

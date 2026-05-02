@@ -1,6 +1,7 @@
 #include "rtk/core/Renderer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 
@@ -72,21 +73,30 @@ bool dimensions_match(const ImageView& source, const MutableImageView& destinati
   return source.width == destination.width && source.height == destination.height;
 }
 
+std::array<std::uint8_t, 256> make_u8_table(float multiplier) noexcept {
+  std::array<std::uint8_t, 256> table{};
+  const float scale = std::max(0.0f, multiplier);
+  for (int i = 0; i < static_cast<int>(table.size()); ++i) {
+    table[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(std::lround(std::clamp(i * scale, 0.0f, 255.0f)));
+  }
+  return table;
+}
+
 void render_u8(const ImageView& source, const MutableImageView& destination, const RenderParams& params) noexcept {
-  const float mr = std::max(0.0f, params.color_multiplier.r);
-  const float mg = std::max(0.0f, params.color_multiplier.g);
-  const float mb = std::max(0.0f, params.color_multiplier.b);
-  const float ma = clamp01(params.color_multiplier.a) * clamp01(params.source_opacity);
+  const auto red = make_u8_table(params.color_multiplier.r);
+  const auto green = make_u8_table(params.color_multiplier.g);
+  const auto blue = make_u8_table(params.color_multiplier.b);
+  const auto alpha = make_u8_table(clamp01(params.color_multiplier.a) * clamp01(params.source_opacity));
 
   for (int y = 0; y < source.height; ++y) {
     const auto* src_row = static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y;
     auto* dst_row = static_cast<std::uint8_t*>(destination.data) + destination.row_bytes * y;
     for (int x = 0; x < source.width; ++x) {
       const int offset = x * 4;
-      dst_row[offset + 0] = to_u8(src_row[offset + 0] * (1.0f / 255.0f) * mr);
-      dst_row[offset + 1] = to_u8(src_row[offset + 1] * (1.0f / 255.0f) * mg);
-      dst_row[offset + 2] = to_u8(src_row[offset + 2] * (1.0f / 255.0f) * mb);
-      dst_row[offset + 3] = to_u8(src_row[offset + 3] * (1.0f / 255.0f) * ma);
+      dst_row[offset + 0] = red[src_row[offset + 0]];
+      dst_row[offset + 1] = green[src_row[offset + 1]];
+      dst_row[offset + 2] = blue[src_row[offset + 2]];
+      dst_row[offset + 3] = alpha[src_row[offset + 3]];
     }
   }
 }

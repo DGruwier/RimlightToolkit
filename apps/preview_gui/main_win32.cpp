@@ -14,6 +14,7 @@
 #include <fstream>
 #include <numeric>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace {
@@ -22,6 +23,7 @@ constexpr int kPanelWidth = 240;
 constexpr int kPanelPadding = 18;
 constexpr int kLabelHeight = 20;
 constexpr int kSliderHeight = 34;
+constexpr int kSliderScale = 100;
 constexpr int kIdRed = 1001;
 constexpr int kIdGreen = 1002;
 constexpr int kIdBlue = 1003;
@@ -40,7 +42,7 @@ struct PreviewState {
   std::vector<std::uint8_t> display_bgra;
   int width = 320;
   int height = 220;
-  rtk::core::RenderParams params;
+  rtk::core::RenderParams params = rtk::core::default_render_params();
   RectF image_rect;
   std::filesystem::path source_path;
 };
@@ -69,16 +71,47 @@ PreviewState g_state;
 AppOptions g_options;
 UiControls g_ui;
 
-std::uint8_t to_byte(float value) {
-  return static_cast<std::uint8_t>(std::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f);
+std::filesystem::path default_test_image_path() {
+  const std::filesystem::path relative = std::filesystem::path("assets") / "test_images" / "test_case_john_01.png";
+  std::error_code error;
+  std::filesystem::path current = std::filesystem::current_path(error);
+  if (error) {
+    return relative;
+  }
+
+  while (!current.empty()) {
+    const std::filesystem::path candidate = current / relative;
+    if (std::filesystem::exists(candidate, error)) {
+      return candidate;
+    }
+    const std::filesystem::path parent = current.parent_path();
+    if (parent == current) {
+      break;
+    }
+    current = parent;
+  }
+
+  return relative;
+}
+
+std::uint8_t over_checker(std::uint8_t source, std::uint8_t alpha, std::uint8_t background) {
+  const int inverse_alpha = 255 - alpha;
+  return static_cast<std::uint8_t>((source * alpha + background * inverse_alpha + 127) / 255);
 }
 
 int slider_pos(HWND slider) {
   return static_cast<int>(SendMessageW(slider, TBM_GETPOS, 0, 0));
 }
 
-void set_slider(HWND slider, int value) {
-  SendMessageW(slider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 200));
+int slider_value(float value) {
+  return static_cast<int>(std::lround(value * kSliderScale));
+}
+
+void set_slider(HWND slider, int value, float min_value, float max_value) {
+  SendMessageW(slider,
+               TBM_SETRANGE,
+               TRUE,
+               MAKELPARAM(slider_value(min_value), slider_value(max_value)));
   SendMessageW(slider, TBM_SETPOS, TRUE, value);
 }
 
@@ -116,20 +149,32 @@ void sync_controls_from_params() {
   if (!g_ui.red) {
     return;
   }
-  set_slider(g_ui.red, static_cast<int>(std::lround(g_state.params.color_multiplier.r * 100.0f)));
-  set_slider(g_ui.green, static_cast<int>(std::lround(g_state.params.color_multiplier.g * 100.0f)));
-  set_slider(g_ui.blue, static_cast<int>(std::lround(g_state.params.color_multiplier.b * 100.0f)));
-  set_slider(g_ui.alpha, static_cast<int>(std::lround(g_state.params.color_multiplier.a * 100.0f)));
+  set_slider(g_ui.red,
+             slider_value(g_state.params.color_multiplier.r),
+             rtk::core::kColorMultiplierControl.display_min,
+             rtk::core::kColorMultiplierControl.display_max);
+  set_slider(g_ui.green,
+             slider_value(g_state.params.color_multiplier.g),
+             rtk::core::kColorMultiplierControl.display_min,
+             rtk::core::kColorMultiplierControl.display_max);
+  set_slider(g_ui.blue,
+             slider_value(g_state.params.color_multiplier.b),
+             rtk::core::kColorMultiplierControl.display_min,
+             rtk::core::kColorMultiplierControl.display_max);
+  set_slider(g_ui.alpha,
+             slider_value(g_state.params.color_multiplier.a),
+             rtk::core::kAlphaMultiplierControl.display_min,
+             rtk::core::kAlphaMultiplierControl.display_max);
 }
 
 void apply_controls_to_params() {
   if (!g_ui.red) {
     return;
   }
-  g_state.params.color_multiplier.r = static_cast<float>(slider_pos(g_ui.red)) / 100.0f;
-  g_state.params.color_multiplier.g = static_cast<float>(slider_pos(g_ui.green)) / 100.0f;
-  g_state.params.color_multiplier.b = static_cast<float>(slider_pos(g_ui.blue)) / 100.0f;
-  g_state.params.color_multiplier.a = static_cast<float>(slider_pos(g_ui.alpha)) / 100.0f;
+  g_state.params.color_multiplier.r = static_cast<float>(slider_pos(g_ui.red)) / kSliderScale;
+  g_state.params.color_multiplier.g = static_cast<float>(slider_pos(g_ui.green)) / kSliderScale;
+  g_state.params.color_multiplier.b = static_cast<float>(slider_pos(g_ui.blue)) / kSliderScale;
+  g_state.params.color_multiplier.a = static_cast<float>(slider_pos(g_ui.alpha)) / kSliderScale;
 }
 
 void create_controls(HWND hwnd) {
@@ -212,14 +257,11 @@ double render_preview() {
     for (int x = 0; x < g_state.width; ++x) {
       const std::size_t index = (static_cast<std::size_t>(y) * g_state.width + x) * 4;
       const bool checker = ((x / 16) + (y / 16)) % 2 == 0;
-      const float bg = checker ? 0.20f : 0.32f;
-      const float a = g_state.rendered[index + 3] / 255.0f;
-      const float r = (g_state.rendered[index + 0] / 255.0f) * a + bg * (1.0f - a);
-      const float g = (g_state.rendered[index + 1] / 255.0f) * a + bg * (1.0f - a);
-      const float b = (g_state.rendered[index + 2] / 255.0f) * a + bg * (1.0f - a);
-      g_state.display_bgra[index + 0] = to_byte(b);
-      g_state.display_bgra[index + 1] = to_byte(g);
-      g_state.display_bgra[index + 2] = to_byte(r);
+      const std::uint8_t background = checker ? 51 : 82;
+      const std::uint8_t alpha = g_state.rendered[index + 3];
+      g_state.display_bgra[index + 0] = over_checker(g_state.rendered[index + 2], alpha, background);
+      g_state.display_bgra[index + 1] = over_checker(g_state.rendered[index + 1], alpha, background);
+      g_state.display_bgra[index + 2] = over_checker(g_state.rendered[index + 0], alpha, background);
       g_state.display_bgra[index + 3] = 255;
     }
   }
@@ -482,6 +524,8 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_command) {
   fill_source();
   if (!g_options.input.empty()) {
     load_png(g_options.input);
+  } else if (const auto default_image = default_test_image_path(); std::filesystem::exists(default_image)) {
+    load_png(default_image);
   }
   render_preview();
 

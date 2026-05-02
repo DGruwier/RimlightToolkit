@@ -19,8 +19,8 @@ OfxParameterSuiteV1* g_parameter = nullptr;
 constexpr const char* kPluginIdentifier = "com.dgruwier.rimlighttoolkit";
 constexpr const char* kSourceClip = "Source";
 constexpr const char* kOutputClip = "Output";
-constexpr const char* kMultiplierColor = "multiplierColor";
-constexpr const char* kAlphaMultiplier = "alphaMultiplier";
+constexpr const char* kMultiplierColor = rtk::core::kColorMultiplierControl.key;
+constexpr const char* kAlphaMultiplier = rtk::core::kAlphaMultiplierControl.key;
 
 bool fetch_suites() {
   if (!g_host || !g_host->fetchSuite) {
@@ -79,14 +79,19 @@ OfxStatus describe_in_context(OfxImageEffectHandle effect) {
   OfxParamSetHandle params = nullptr;
   g_image_effect->getParamSet(effect, &params);
 
-  define_double_param(params, kAlphaMultiplier, "Alpha Multiplier", 1.0, 0.0, 1.0);
+  define_double_param(params,
+                      kAlphaMultiplier,
+                      rtk::core::kAlphaMultiplierControl.label,
+                      rtk::core::kAlphaMultiplierControl.default_value,
+                      rtk::core::kAlphaMultiplierControl.display_min,
+                      rtk::core::kAlphaMultiplierControl.display_max);
 
-  OfxPropertySetHandle fill_color_props = nullptr;
-  g_parameter->paramDefine(params, kOfxParamTypeRGB, kMultiplierColor, &fill_color_props);
-  g_property->propSetString(fill_color_props, kOfxPropLabel, 0, "Color Multiplier");
-  g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 0, 1.0);
-  g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 1, 1.0);
-  g_property->propSetDouble(fill_color_props, kOfxParamPropDefault, 2, 1.0);
+  OfxPropertySetHandle multiplier_color_props = nullptr;
+  g_parameter->paramDefine(params, kOfxParamTypeRGB, kMultiplierColor, &multiplier_color_props);
+  g_property->propSetString(multiplier_color_props, kOfxPropLabel, 0, rtk::core::kColorMultiplierControl.label);
+  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 0, rtk::core::kColorMultiplierControl.default_value.r);
+  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 1, rtk::core::kColorMultiplierControl.default_value.g);
+  g_property->propSetDouble(multiplier_color_props, kOfxParamPropDefault, 2, rtk::core::kColorMultiplierControl.default_value.b);
 
   return kOfxStatOK;
 }
