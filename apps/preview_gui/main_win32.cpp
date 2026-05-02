@@ -169,6 +169,11 @@ bool client_to_image(int client_x, int client_y, float& image_x, float& image_y)
   return true;
 }
 
+void repaint_now(HWND hwnd) {
+  InvalidateRect(hwnd, nullptr, FALSE);
+  UpdateWindow(hwnd);
+}
+
 void set_origin_from_mouse(HWND hwnd, LPARAM lparam) {
   float image_x = 0.0f;
   float image_y = 0.0f;
@@ -178,8 +183,7 @@ void set_origin_from_mouse(HWND hwnd, LPARAM lparam) {
   g_state.params.transform_origin_x = image_x;
   g_state.params.transform_origin_y = image_y;
   render_preview();
-  update_title(hwnd);
-  InvalidateRect(hwnd, nullptr, FALSE);
+  repaint_now(hwnd);
 }
 
 double draw_preview(HWND hwnd, HDC hdc) {
@@ -255,7 +259,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       if (DragQueryFileW(drop, 0, path, MAX_PATH) > 0 && load_png(path)) {
         render_preview();
         update_title(hwnd);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        repaint_now(hwnd);
       }
       DragFinish(drop);
       return 0;
@@ -291,7 +295,7 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       }
       render_preview();
       update_title(hwnd);
-      InvalidateRect(hwnd, nullptr, FALSE);
+      repaint_now(hwnd);
       return 0;
     case WM_SIZE:
       InvalidateRect(hwnd, nullptr, FALSE);
