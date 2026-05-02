@@ -95,6 +95,7 @@ cmake --build build-ofx
 ```
 
 The adapter code is designed to remain thin. Missing SDK files should only affect the optional adapter target, never the core renderer or preview harness.
+The OpenFX adapter is also compiled in CI with fetched OpenFX headers to catch scaffold drift. The After Effects adapter still requires a local Adobe SDK because those headers are not redistributed here.
 
 ## Development Direction
 
@@ -102,7 +103,7 @@ The first implementation path is CPU-first, deterministic, and testable:
 
 1. Normalize host input into `rtk::core::ImageView` / `MutableImageView`.
 2. Render color multiplication in `rtk::core::render`.
-3. Map AE 8/16/32-bpc and OFX byte/short/float RGBA buffers at adapter boundaries.
+3. Map AE 8/16-bpc CPU worlds and OFX byte/short/float RGBA buffers at adapter boundaries.
 4. Add GPU parity later through backend entry points that preserve the same core parameter contract.
 
 See [docs/architecture.md](docs/architecture.md) and [docs/sdk-notes.md](docs/sdk-notes.md).

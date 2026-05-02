@@ -18,3 +18,13 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Generate preview frame
         run: ./scripts/rtk.sh run
+
+  ofx:
+    name: OpenFX adapter compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build-ofx -G Ninja -DCMAKE_BUILD_TYPE=Release -DRTK_BUILD_PREVIEW_CLI=OFF -DRTK_BUILD_PREVIEW_GUI=OFF -DRTK_BUILD_TESTS=OFF -DRTK_BUILD_OFX_PLUGIN=ON -DRTK_FETCH_OPENFX=ON
+      - name: Build
+        run: cmake --build build-ofx

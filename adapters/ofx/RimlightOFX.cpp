@@ -11,10 +11,10 @@
 
 namespace {
 
-OfxHost* g_host = nullptr;
-OfxImageEffectSuiteV1* g_image_effect = nullptr;
-OfxPropertySuiteV1* g_property = nullptr;
-OfxParameterSuiteV1* g_parameter = nullptr;
+const OfxHost* g_host = nullptr;
+const OfxImageEffectSuiteV1* g_image_effect = nullptr;
+const OfxPropertySuiteV1* g_property = nullptr;
+const OfxParameterSuiteV1* g_parameter = nullptr;
 
 constexpr const char* kPluginIdentifier = "com.dgruwier.rimlighttoolkit";
 constexpr const char* kSourceClip = "Source";
@@ -26,11 +26,11 @@ bool fetch_suites() {
   if (!g_host || !g_host->fetchSuite) {
     return false;
   }
-  g_image_effect = static_cast<OfxImageEffectSuiteV1*>(
+  g_image_effect = static_cast<const OfxImageEffectSuiteV1*>(
       g_host->fetchSuite(g_host->host, kOfxImageEffectSuite, 1));
-  g_property = static_cast<OfxPropertySuiteV1*>(
+  g_property = static_cast<const OfxPropertySuiteV1*>(
       g_host->fetchSuite(g_host->host, kOfxPropertySuite, 1));
-  g_parameter = static_cast<OfxParameterSuiteV1*>(
+  g_parameter = static_cast<const OfxParameterSuiteV1*>(
       g_host->fetchSuite(g_host->host, kOfxParameterSuite, 1));
   return g_image_effect && g_property && g_parameter;
 }
@@ -64,15 +64,10 @@ OfxStatus describe(OfxImageEffectHandle effect) {
 }
 
 OfxStatus describe_in_context(OfxImageEffectHandle effect) {
-  OfxImageClipHandle source_clip = nullptr;
-  OfxImageClipHandle output_clip = nullptr;
-  g_image_effect->clipDefine(effect, kSourceClip, &source_clip);
-  g_image_effect->clipDefine(effect, kOutputClip, &output_clip);
-
   OfxPropertySetHandle source_props = nullptr;
   OfxPropertySetHandle output_props = nullptr;
-  g_image_effect->clipGetPropertySet(source_clip, &source_props);
-  g_image_effect->clipGetPropertySet(output_clip, &output_props);
+  g_image_effect->clipDefine(effect, kSourceClip, &source_props);
+  g_image_effect->clipDefine(effect, kOutputClip, &output_props);
   g_property->propSetString(source_props, kOfxImageEffectPropSupportedComponents, 0, kOfxImageComponentRGBA);
   g_property->propSetString(output_props, kOfxImageEffectPropSupportedComponents, 0, kOfxImageComponentRGBA);
 
@@ -214,6 +209,7 @@ extern "C" OfxExport OfxPlugin* OfxGetPlugin(int index) {
   return index == 0 ? &g_plugin : nullptr;
 }
 
-extern "C" OfxExport void OfxSetHost(OfxHost* host) {
+extern "C" OfxExport OfxStatus OfxSetHost(const OfxHost* host) {
   g_host = host;
+  return kOfxStatOK;
 }

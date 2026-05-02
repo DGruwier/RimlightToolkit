@@ -103,9 +103,7 @@ extern "C" DllExport PF_Err EffectMain(PF_Cmd cmd,
     case PF_Cmd_RENDER:
       return render_cpu(params, output);
     case PF_Cmd_SMART_PRE_RENDER:
-      return PF_Err_NONE;
     case PF_Cmd_SMART_RENDER:
-      return PF_Err_NONE;
     case PF_Cmd_GPU_DEVICE_SETUP:
     case PF_Cmd_SMART_RENDER_GPU:
       return PF_Err_UNRECOGNIZED_PARAM_TYPE;

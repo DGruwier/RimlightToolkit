@@ -101,6 +101,48 @@ void render_u8(const ImageView& source, const MutableImageView& destination, con
   }
 }
 
+void render_u16(const ImageView& source, const MutableImageView& destination, const RenderParams& params) noexcept {
+  const float red = std::max(0.0f, params.color_multiplier.r) * (1.0f / 65535.0f);
+  const float green = std::max(0.0f, params.color_multiplier.g) * (1.0f / 65535.0f);
+  const float blue = std::max(0.0f, params.color_multiplier.b) * (1.0f / 65535.0f);
+  const float alpha = clamp01(params.color_multiplier.a) * clamp01(params.source_opacity) * (1.0f / 65535.0f);
+
+  for (int y = 0; y < source.height; ++y) {
+    const auto* src_row = reinterpret_cast<const std::uint16_t*>(
+        static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y);
+    auto* dst_row = reinterpret_cast<std::uint16_t*>(
+        static_cast<std::uint8_t*>(destination.data) + destination.row_bytes * y);
+    for (int x = 0; x < source.width; ++x) {
+      const int offset = x * 4;
+      dst_row[offset + 0] = to_u16(src_row[offset + 0] * red);
+      dst_row[offset + 1] = to_u16(src_row[offset + 1] * green);
+      dst_row[offset + 2] = to_u16(src_row[offset + 2] * blue);
+      dst_row[offset + 3] = to_u16(src_row[offset + 3] * alpha);
+    }
+  }
+}
+
+void render_f32(const ImageView& source, const MutableImageView& destination, const RenderParams& params) noexcept {
+  const float red = std::max(0.0f, params.color_multiplier.r);
+  const float green = std::max(0.0f, params.color_multiplier.g);
+  const float blue = std::max(0.0f, params.color_multiplier.b);
+  const float alpha = clamp01(params.color_multiplier.a) * clamp01(params.source_opacity);
+
+  for (int y = 0; y < source.height; ++y) {
+    const auto* src_row = reinterpret_cast<const float*>(
+        static_cast<const std::uint8_t*>(source.data) + source.row_bytes * y);
+    auto* dst_row = reinterpret_cast<float*>(
+        static_cast<std::uint8_t*>(destination.data) + destination.row_bytes * y);
+    for (int x = 0; x < source.width; ++x) {
+      const int offset = x * 4;
+      dst_row[offset + 0] = src_row[offset + 0] * red;
+      dst_row[offset + 1] = src_row[offset + 1] * green;
+      dst_row[offset + 2] = src_row[offset + 2] * blue;
+      dst_row[offset + 3] = src_row[offset + 3] * alpha;
+    }
+  }
+}
+
 }  // namespace
 
 bool is_valid(const ImageView& image) noexcept {
@@ -134,6 +176,14 @@ RenderResult render(const ImageView& source,
 
   if (source.format == PixelFormat::RgbaU8 && destination.format == PixelFormat::RgbaU8) {
     render_u8(source, destination, params);
+    return {};
+  }
+  if (source.format == PixelFormat::RgbaU16 && destination.format == PixelFormat::RgbaU16) {
+    render_u16(source, destination, params);
+    return {};
+  }
+  if (source.format == PixelFormat::RgbaF32 && destination.format == PixelFormat::RgbaF32) {
+    render_f32(source, destination, params);
     return {};
   }
 

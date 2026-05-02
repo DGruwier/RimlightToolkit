@@ -22,13 +22,13 @@ The current processing stack is intentionally minimal:
 3. Multiply alpha by `RenderParams::color_multiplier.a * source_opacity`.
 4. Write the result in the destination pixel format.
 
-This clean baseline keeps the host-independent core easy to verify before more advanced image-processing logic is reintroduced.
+This clean baseline keeps the host-independent core easy to verify before more advanced image-processing logic is reintroduced. Same-format U8, U16, and F32 renders have typed fast paths; mixed-format conversion falls back to the generic path.
 
 ## Host Adapters
 
 After Effects and OFX adapters are thin translation layers. They define host controls and map host image buffers into `rtk_core` descriptors. Algorithm logic belongs in `rtk_core`, not in host adapters.
 
-The AE scaffold currently advertises only the CPU render path it actually implements. SmartFX, AE 32-bpc world mapping, and GPU selectors should be added as adapter backends that still call through the same core parameter contract.
+The AE scaffold currently advertises only the CPU render path it actually implements. SmartFX, AE 32-bpc world mapping, and GPU selectors should be added as adapter backends that still call through the same core parameter contract. The OpenFX adapter is built in CI against fetched OpenFX headers so scaffold breakage is caught early.
 
 ## Preview Harnesses
 

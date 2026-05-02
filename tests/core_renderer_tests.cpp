@@ -51,11 +51,32 @@ void f32_color_multiply() {
   assert(std::fabs(destination[3] - 1.0f) < 0.001f);
 }
 
+void u16_color_multiply() {
+  std::vector<std::uint16_t> source{10000, 30000, 50000, 60000};
+  std::vector<std::uint16_t> destination(4, 0);
+
+  rtk::core::RenderParams params;
+  params.color_multiplier = {0.5f, 1.0f, 0.25f, 0.5f};
+
+  const rtk::core::ImageView src{
+      source.data(), 1, 1, 4 * static_cast<int>(sizeof(std::uint16_t)), rtk::core::PixelFormat::RgbaU16};
+  const rtk::core::MutableImageView dst{
+      destination.data(), 1, 1, 4 * static_cast<int>(sizeof(std::uint16_t)), rtk::core::PixelFormat::RgbaU16};
+
+  const auto result = rtk::core::render(src, dst, params);
+  assert(result.status == rtk::core::RenderStatus::Ok);
+  assert(destination[0] == 5000);
+  assert(destination[1] == 30000);
+  assert(destination[2] == 12500);
+  assert(destination[3] == 30000);
+}
+
 }  // namespace
 
 int main() {
   render_rejects_bad_inputs();
   u8_color_multiply();
+  u16_color_multiply();
   f32_color_multiply();
   return 0;
 }

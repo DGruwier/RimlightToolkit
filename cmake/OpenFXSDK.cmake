@@ -16,7 +16,10 @@ function(rtk_find_openfx_sdk)
       openfx
       GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openfx.git
       GIT_TAG OFX_Release_1.5.1)
-    FetchContent_MakeAvailable(openfx)
+    FetchContent_GetProperties(openfx)
+    if(NOT openfx_POPULATED)
+      FetchContent_Populate(openfx)
+    endif()
     find_path(OPENFX_INCLUDE_DIR
       NAMES ofxImageEffect.h
       PATHS
