@@ -44,6 +44,7 @@ struct RenderParams {
   Float2 point_source = {0.35f, 0.35f};
   float point_scale = 1.08f;
   float occlusion_distance = 32.0f;
+  int occlusion_slices = 64;
   float blur_radius = 8.0f;
   int blur_iterations = 3;
 

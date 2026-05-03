@@ -31,20 +31,23 @@ constexpr int kIdOffsetX = 1003;
 constexpr int kIdOffsetY = 1004;
 constexpr int kIdPointScale = 1005;
 constexpr int kIdOcclusion = 1006;
-constexpr int kIdBlur = 1007;
-constexpr int kIdIterations = 1008;
-constexpr int kIdOpacity = 1009;
-constexpr int kIdRed = 1010;
-constexpr int kIdGreen = 1011;
-constexpr int kIdBlue = 1012;
-constexpr int kIdEnableAlpha = 1013;
-constexpr int kIdEnableOffset = 1014;
-constexpr int kIdEnableOcclusion = 1015;
-constexpr int kIdEnableBlur = 1016;
-constexpr int kIdEnableInvert = 1017;
-constexpr int kIdEnableMatte = 1018;
-constexpr int kIdEnableColor = 1019;
-constexpr int kIdEnableComposite = 1020;
+constexpr int kIdSlices = 1007;
+constexpr int kIdBlur = 1008;
+constexpr int kIdIterations = 1009;
+constexpr int kIdOpacity = 1010;
+constexpr int kIdRed = 1011;
+constexpr int kIdGreen = 1012;
+constexpr int kIdBlue = 1013;
+constexpr int kIdEnableAlpha = 1014;
+constexpr int kIdEnableOffset = 1015;
+constexpr int kIdEnableOcclusion = 1016;
+constexpr int kIdEnableBlur = 1017;
+constexpr int kIdEnableInvert = 1018;
+constexpr int kIdEnableMatte = 1019;
+constexpr int kIdEnableColor = 1020;
+constexpr int kIdEnableComposite = 1021;
+constexpr UINT_PTR kRenderTimer = 1;
+constexpr UINT kRenderDelayMs = 16;
 
 struct RectF {
   float x = 0.0f;
@@ -63,6 +66,7 @@ struct PreviewState {
   RectF image_rect;
   std::filesystem::path source_path;
   bool dragging = false;
+  bool render_pending = false;
 };
 
 struct AppOptions {
@@ -85,6 +89,7 @@ struct UiControls {
   HWND offset_y = nullptr;
   HWND point_scale = nullptr;
   HWND occlusion = nullptr;
+  HWND slices = nullptr;
   HWND blur = nullptr;
   HWND iterations = nullptr;
   HWND opacity = nullptr;
@@ -225,6 +230,7 @@ void sync_controls_from_params() {
   set_slider(g_ui.offset_y, -200, 200, static_cast<int>(std::lround(g_state.params.directional_offset_pixels.y)));
   set_slider(g_ui.point_scale, 50, 300, static_cast<int>(std::lround(g_state.params.point_scale * 100.0f)));
   set_slider(g_ui.occlusion, 0, 160, static_cast<int>(std::lround(g_state.params.occlusion_distance)));
+  set_slider(g_ui.slices, 1, 160, g_state.params.occlusion_slices);
   set_slider(g_ui.blur, 0, 64, static_cast<int>(std::lround(g_state.params.blur_radius)));
   set_slider(g_ui.iterations, 0, 8, g_state.params.blur_iterations);
   set_slider(g_ui.opacity, 0, 100, static_cast<int>(std::lround(g_state.params.solid_opacity * 100.0f)));
@@ -255,6 +261,7 @@ void apply_controls_to_params() {
   g_state.params.directional_offset_pixels.y = static_cast<float>(slider_pos(g_ui.offset_y));
   g_state.params.point_scale = static_cast<float>(slider_pos(g_ui.point_scale)) / 100.0f;
   g_state.params.occlusion_distance = static_cast<float>(slider_pos(g_ui.occlusion));
+  g_state.params.occlusion_slices = slider_pos(g_ui.slices);
   g_state.params.blur_radius = static_cast<float>(slider_pos(g_ui.blur));
   g_state.params.blur_iterations = slider_pos(g_ui.iterations);
   g_state.params.solid_opacity = static_cast<float>(slider_pos(g_ui.opacity)) / 100.0f;
@@ -297,6 +304,8 @@ void create_controls(HWND hwnd) {
   g_ui.point_scale = create_slider(hwnd, kIdPointScale);
   create_label(hwnd, L"Occlusion distance");
   g_ui.occlusion = create_slider(hwnd, kIdOcclusion);
+  create_label(hwnd, L"Occlusion slices");
+  g_ui.slices = create_slider(hwnd, kIdSlices);
   create_label(hwnd, L"Blur size");
   g_ui.blur = create_slider(hwnd, kIdBlur);
   create_label(hwnd, L"Blur iterations");
@@ -393,7 +402,7 @@ double render_preview() {
     for (int x = 0; x < g_state.width; ++x) {
       const std::size_t index = (static_cast<std::size_t>(y) * g_state.width + x) * 4;
       const bool checker = ((x / 16) + (y / 16)) % 2 == 0;
-      const std::uint8_t background = checker ? 51 : 82;
+      const std::uint8_t background = checker ? 26 : 38;
       const std::uint8_t alpha = g_state.rendered[index + 3];
       g_state.display_bgra[index + 0] = over_checker(g_state.rendered[index + 2], alpha, background);
       g_state.display_bgra[index + 1] = over_checker(g_state.rendered[index + 1], alpha, background);
@@ -494,16 +503,16 @@ double draw_preview(HWND hwnd, HDC hdc) {
   RECT client{};
   GetClientRect(hwnd, &client);
 
-  HBRUSH background = CreateSolidBrush(RGB(24, 24, 24));
+  HBRUSH background = CreateSolidBrush(RGB(12, 12, 12));
   FillRect(hdc, &client, background);
   DeleteObject(background);
 
   RECT panel{std::max(0L, client.right - kPanelWidth), client.top, client.right, client.bottom};
-  HBRUSH panel_brush = CreateSolidBrush(RGB(34, 34, 34));
+  HBRUSH panel_brush = CreateSolidBrush(RGB(17, 17, 17));
   FillRect(hdc, &panel, panel_brush);
   DeleteObject(panel_brush);
 
-  HPEN separator = CreatePen(PS_SOLID, 1, RGB(58, 58, 58));
+  HPEN separator = CreatePen(PS_SOLID, 1, RGB(30, 30, 30));
   HGDIOBJ old_separator = SelectObject(hdc, separator);
   MoveToEx(hdc, panel.left, panel.top, nullptr);
   LineTo(hdc, panel.left, panel.bottom);
@@ -646,6 +655,11 @@ void update_and_repaint(HWND hwnd) {
   repaint_now(hwnd);
 }
 
+void request_render(HWND hwnd) {
+  g_state.render_pending = true;
+  SetTimer(hwnd, kRenderTimer, kRenderDelayMs, nullptr);
+}
+
 LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
     case WM_CREATE:
@@ -657,18 +671,18 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
       HDROP drop = reinterpret_cast<HDROP>(wparam);
       wchar_t path[MAX_PATH] = {};
       if (DragQueryFileW(drop, 0, path, MAX_PATH) > 0 && load_png(path)) {
-        update_and_repaint(hwnd);
+        request_render(hwnd);
       }
       DragFinish(drop);
       return 0;
     }
     case WM_COMMAND:
       apply_controls_to_params();
-      update_and_repaint(hwnd);
+      request_render(hwnd);
       return 0;
     case WM_HSCROLL:
       apply_controls_to_params();
-      update_and_repaint(hwnd);
+      request_render(hwnd);
       return 0;
     case WM_LBUTTONDOWN: {
       RECT client{};
@@ -677,13 +691,20 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpar
         g_state.dragging = true;
         SetCapture(hwnd);
         update_drag_params(hwnd, lparam);
-        update_and_repaint(hwnd);
+        request_render(hwnd);
       }
       return 0;
     }
     case WM_MOUSEMOVE:
       if (g_state.dragging && (wparam & MK_LBUTTON)) {
         update_drag_params(hwnd, lparam);
+        request_render(hwnd);
+      }
+      return 0;
+    case WM_TIMER:
+      if (wparam == kRenderTimer && g_state.render_pending) {
+        KillTimer(hwnd, kRenderTimer);
+        g_state.render_pending = false;
         update_and_repaint(hwnd);
       }
       return 0;

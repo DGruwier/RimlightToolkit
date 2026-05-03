@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -145,35 +144,28 @@ void max_blur_directional(const std::vector<float>& input,
                           int width,
                           int height,
                           Float2 vector,
-                          float distance) {
+                          float distance,
+                          int slices) {
   output.assign(input.size(), 0.0f);
   float length = std::sqrt(vector.x * vector.x + vector.y * vector.y);
   if (length < 0.001f) {
     vector = {1.0f, 0.0f};
     length = 1.0f;
   }
-  int step_x = static_cast<int>(std::lround(vector.x));
-  int step_y = static_cast<int>(std::lround(vector.y));
-  if (step_x == 0 && step_y == 0) {
-    step_x = static_cast<int>(std::lround(vector.x / length));
-    step_y = static_cast<int>(std::lround(vector.y / length));
-  }
-  if (step_x == 0 && step_y == 0) {
-    step_x = 1;
-  }
-  const int divisor = std::gcd(std::abs(step_x), std::abs(step_y));
-  if (divisor > 1) {
-    step_x /= divisor;
-    step_y /= divisor;
-  }
-
-  const float step_length = std::max(1.0f, std::sqrt(static_cast<float>(step_x * step_x + step_y * step_y)));
-  const int steps = std::max(0, static_cast<int>(std::ceil(std::max(0.0f, distance))));
-  const int sample_count = static_cast<int>(std::ceil(static_cast<float>(steps) / step_length));
+  const float dx = vector.x / length;
+  const float dy = vector.y / length;
+  const int sample_count = std::max(1, slices);
   std::vector<std::pair<int, int>> offsets;
   offsets.reserve(static_cast<std::size_t>(sample_count + 1));
   for (int i = 0; i <= sample_count; ++i) {
-    offsets.push_back({step_x * i, step_y * i});
+    const float t = std::max(0.0f, distance) * static_cast<float>(i) / static_cast<float>(sample_count);
+    const std::pair<int, int> offset{
+        static_cast<int>(std::lround(dx * t)),
+        static_cast<int>(std::lround(dy * t)),
+    };
+    if (offsets.empty() || offsets.back() != offset) {
+      offsets.push_back(offset);
+    }
   }
 
   for (int y = 0; y < height; ++y) {
@@ -196,11 +188,12 @@ void max_blur_point(const std::vector<float>& input,
                     int width,
                     int height,
                     Float2 point_source,
-                    float distance) {
+                    float distance,
+                    int slices) {
   output.assign(input.size(), 0.0f);
   const float pivot_x = point_source.x * static_cast<float>(std::max(1, width - 1));
   const float pivot_y = point_source.y * static_cast<float>(std::max(1, height - 1));
-  const int steps = std::max(0, static_cast<int>(std::ceil(std::max(0.0f, distance))));
+  const int sample_count = std::max(1, slices);
   for (int y = 0; y < height; ++y) {
     for (int x = 0; x < width; ++x) {
       float dx = static_cast<float>(x) - pivot_x;
@@ -214,8 +207,13 @@ void max_blur_point(const std::vector<float>& input,
         dy /= length;
       }
       float value = input[mask_index(x, y, width)];
-      for (int i = 1; i <= steps; ++i) {
-        value = std::max(value, sample_mask(input, width, height, x - dx * i, y - dy * i));
+      for (int i = 1; i <= sample_count; ++i) {
+        const float t = std::max(0.0f, distance) * static_cast<float>(i) / static_cast<float>(sample_count);
+        const int sx = static_cast<int>(std::lround(x - dx * t));
+        const int sy = static_cast<int>(std::lround(y - dy * t));
+        if (sx >= 0 && sy >= 0 && sx < width && sy < height) {
+          value = std::max(value, input[mask_index(sx, sy, width)]);
+        }
       }
       output[mask_index(x, y, width)] = value;
     }
@@ -421,9 +419,21 @@ RenderResult render(const ImageView& source,
 
   if (params.enable.occlusion) {
     if (params.light_mode == LightMode::Directional) {
-      max_blur_directional(stage, next, source.width, source.height, params.directional_offset_pixels, params.occlusion_distance);
+      max_blur_directional(stage,
+                           next,
+                           source.width,
+                           source.height,
+                           params.directional_offset_pixels,
+                           params.occlusion_distance,
+                           std::max(1, params.occlusion_slices));
     } else {
-      max_blur_point(stage, next, source.width, source.height, params.point_source, params.occlusion_distance);
+      max_blur_point(stage,
+                     next,
+                     source.width,
+                     source.height,
+                     params.point_source,
+                     params.occlusion_distance,
+                     std::max(1, params.occlusion_slices));
     }
     stage.swap(next);
   }

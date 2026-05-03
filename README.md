@@ -52,7 +52,7 @@ If no PNG is supplied, the CLI preview uses the same default test image and fall
 Process a PNG with the CLI and a debug stage:
 
 ```powershell
-.\scripts\rtk.ps1 run --input .\source.png --out out\preview.png --debug occlusion
+.\scripts\rtk.ps1 run --input .\source.png --out out\preview.png --debug occlusion --occlusion-slices 96
 ```
 
 Passing arguments runs the CLI preview harness instead. On Windows, `scripts\preview.cmd` can be used as a simple Explorer drop target: drag a PNG onto it and it will build/run the interactive preview against that image.

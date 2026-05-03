@@ -19,7 +19,7 @@ The active renderer is an AE-operation-parity mask stack:
 
 1. Extract source alpha.
 2. Offset the mask using directional pixels or point-source scaling.
-3. Run max-blur occlusion along the light direction.
+3. Run max-blur occlusion along the light direction with an explicit slice count.
 4. Apply iterative box blur.
 5. Invert the mask.
 6. Matte by original alpha.

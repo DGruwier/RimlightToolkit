@@ -94,6 +94,8 @@ bool parse_args(int argc, char** argv, Args& args) {
       if (!read_value(i, argc, argv, args.params.directional_offset_pixels.x)) return false;
     } else if (key == "--offset-y") {
       if (!read_value(i, argc, argv, args.params.directional_offset_pixels.y)) return false;
+    } else if (key == "--occlusion-slices") {
+      if (!read_value(i, argc, argv, args.params.occlusion_slices)) return false;
     } else {
       return false;
     }
@@ -154,7 +156,8 @@ int main(int argc, char** argv) {
   Args args;
   if (!parse_args(argc, argv, args)) {
     std::cerr << "Usage: rtk_preview_cli [--input image.png] [--out image.png] [--debug stage] "
-                 "[--mode directional|point] [--offset-x pixels] [--offset-y pixels]\n";
+                 "[--mode directional|point] [--offset-x pixels] [--offset-y pixels] "
+                 "[--occlusion-slices n]\n";
     return 2;
   }
 
